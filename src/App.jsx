@@ -691,70 +691,107 @@ export default function App() {
   );
 
   // ============================================================
+  //  ADMIN: Export helpers
+  // ============================================================
+  const exportLogsCSV = () => {
+    const headers = ['วันที่', 'รหัส', 'ชื่อ-สกุล', 'เข้างาน', 'พักเที่ยง', 'กลับพัก', 'ออกงาน', 'ชม.สุทธิ', 'สถานะ'];
+    const rows = adminLogs.map(l => [
+      l.date, l.employeeId, l.name,
+      l.in || '-', l.breakOut || '-', l.breakIn || '-', l.out || '-',
+      l.workedHours || '-', l.status === 'complete' ? 'ครบ' : 'ไม่ครบ',
+    ]);
+    const csv = [headers, ...rows].map(r => r.join(',')).join('\n');
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `attendance_${api.getCurrentWeekStr()}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportPayrollCSV = () => {
+    const payroll = adminPayroll?.payroll || [];
+    const headers = ['รหัส', 'ชื่อ-สกุล', 'วันทำงาน', 'ชม.รวม', 'เรท', 'ประเภท', 'ยอดรวม'];
+    const rows = payroll.map(p => [
+      p.employeeId, p.name, p.days, p.hours,
+      p.rate, p.rateType === 'daily' ? 'รายวัน' : 'รายชั่วโมง', p.total,
+    ]);
+    const csv = [headers, ...rows].map(r => r.join(',')).join('\n');
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `payroll_${adminPayroll?.week || api.getCurrentWeekStr()}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // ============================================================
   //  ADMIN Dashboard
   // ============================================================
   const renderAdminDashboard = () => (
-    <div className="flex flex-col h-full w-full px-8 pt-6 pb-10 animate-fade-in">
-      {/* Header */}
-      <div className="flex justify-between items-center bg-white p-4 pr-6 pl-8 rounded-full shadow-sm mb-6 w-full max-w-7xl mx-auto border border-slate-100">
-        <div className="flex items-center gap-3">
-          <div className="bg-[#222222] text-white p-2.5 rounded-full"><LockIcon /></div>
-          <h1 className="text-2xl font-bold text-[#222222]">ผู้ดูแลระบบ (Admin)</h1>
+    <div className="flex flex-col w-full self-stretch px-6 pt-4 pb-6 animate-fade-in">
+      {/* Header — 2 rows */}
+      <div className="bg-white rounded-3xl shadow-sm mb-4 w-full border border-slate-100 overflow-hidden">
+        {/* Row 1: title + logout */}
+        <div className="flex justify-between items-center px-5 py-3 border-b border-slate-100">
+          <div className="flex items-center gap-2">
+            <div className="bg-[#222222] text-white p-2 rounded-full"><LockIcon className="w-5 h-5" /></div>
+            <h1 className="text-xl font-bold text-[#222222]">Admin</h1>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => loadAdminData()}
+              className="bg-[#F2F2F2] text-slate-600 p-2 rounded-full hover:bg-slate-200 transition-colors cursor-pointer touch-manipulation"
+              title="รีเฟรช"
+            >
+              <RefreshIcon className="w-4 h-4" />
+            </button>
+            <button
+              onClick={handleExitAdmin}
+              className="bg-[#EF4444] text-white px-4 py-2 rounded-full text-base font-medium active:scale-95 transition-transform cursor-pointer touch-manipulation"
+            >
+              ออก
+            </button>
+          </div>
         </div>
-
-        <div className="flex bg-[#F2F2F2] p-1.5 rounded-full">
-          <button
-            onClick={() => handleAdminTabChange('LOG')}
-            className={`flex items-center gap-2 px-6 py-2 rounded-full text-lg font-bold transition-all ${adminTab === 'LOG' ? 'bg-white text-[#222222] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-          >
-            <DocumentIcon className="w-5 h-5" /> ประวัติลงเวลา
-          </button>
-          <button
-            onClick={() => handleAdminTabChange('PAYROLL')}
-            className={`flex items-center gap-2 px-6 py-2 rounded-full text-lg font-bold transition-all ${adminTab === 'PAYROLL' ? 'bg-white text-[#222222] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-          >
-            <CashIcon className="w-5 h-5" /> สรุปค่าแรง (รายสัปดาห์)
-          </button>
-          <button
-            onClick={() => setAdminTab('SETTINGS')}
-            className={`flex items-center gap-2 px-6 py-2 rounded-full text-lg font-bold transition-all ${adminTab === 'SETTINGS' ? 'bg-white text-[#222222] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-            </svg>
-            ตั้งค่า
-          </button>
-        </div>
-
-        <div className="flex items-center gap-3">
+        {/* Row 2: tabs + enroll */}
+        <div className="flex justify-between items-center px-5 py-3">
+          <div className="flex bg-[#F2F2F2] p-1 rounded-full gap-1">
+            <button
+              onClick={() => handleAdminTabChange('LOG')}
+              className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-base font-bold transition-all ${adminTab === 'LOG' ? 'bg-white text-[#222222] shadow-sm' : 'text-slate-500'}`}
+            >
+              <DocumentIcon className="w-4 h-4" /> ลงเวลา
+            </button>
+            <button
+              onClick={() => handleAdminTabChange('PAYROLL')}
+              className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-base font-bold transition-all ${adminTab === 'PAYROLL' ? 'bg-white text-[#222222] shadow-sm' : 'text-slate-500'}`}
+            >
+              <CashIcon className="w-4 h-4" /> ค่าแรง
+            </button>
+            <button
+              onClick={() => setAdminTab('SETTINGS')}
+              className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-base font-bold transition-all ${adminTab === 'SETTINGS' ? 'bg-white text-[#222222] shadow-sm' : 'text-slate-500'}`}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+              </svg>
+              ตั้งค่า
+            </button>
+          </div>
           <button
             onClick={() => setAppMode('ENROLL')}
-            className="bg-[#7B8CFA] text-white px-5 py-2.5 rounded-full text-lg font-medium active:scale-95 transition-transform cursor-pointer touch-manipulation flex items-center gap-2"
+            className="bg-[#7B8CFA] text-white px-4 py-2 rounded-full text-base font-medium active:scale-95 transition-transform cursor-pointer touch-manipulation flex items-center gap-1.5"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
             </svg>
-            ลงทะเบียนใบหน้า
-          </button>
-          <button
-            onClick={() => loadAdminData()}
-            className="bg-[#F2F2F2] text-slate-600 p-2.5 rounded-full hover:bg-slate-200 transition-colors cursor-pointer touch-manipulation"
-            title="รีเฟรช"
-          >
-            <RefreshIcon className="w-5 h-5" />
-          </button>
-          <button
-            onClick={handleExitAdmin}
-            className="bg-[#EF4444] text-white px-6 py-2.5 rounded-full text-lg font-medium active:scale-95 transition-transform cursor-pointer touch-manipulation"
-          >
-            ออกจากระบบ
+            ลงทะเบียน
           </button>
         </div>
       </div>
 
       {/* Content */}
-      <div className="flex-1 w-full max-w-7xl mx-auto bg-white rounded-[2.5rem] shadow-sm border border-slate-100 p-8 overflow-hidden flex flex-col">
+      <div className="flex-1 w-full bg-white rounded-3xl shadow-sm border border-slate-100 p-6 overflow-hidden flex flex-col min-h-0">
         {adminLoading ? (
           <div className="flex-1 flex items-center justify-center gap-4 text-slate-400 text-xl">
             <div className="w-8 h-8 border-4 border-slate-100 border-t-[#7B8CFA] rounded-full animate-spin" />
@@ -780,14 +817,21 @@ export default function App() {
 
   const renderAdminLogs = () => (
     <>
-      <div className="flex justify-between items-end mb-6">
+      <div className="flex justify-between items-center mb-5">
         <div>
-          <h2 className="text-3xl font-bold text-[#222222] mb-1">Attendance Log</h2>
-          <p className="text-slate-500 text-lg">รายการลงเวลาของพนักงานทั้งหมด สัปดาห์นี้</p>
+          <h2 className="text-2xl font-bold text-[#222222] mb-0.5">Attendance Log</h2>
+          <p className="text-slate-500">สัปดาห์: {api.getCurrentWeekStr()}</p>
         </div>
-        <div className="bg-[#F2F2F2] px-4 py-2 rounded-full text-slate-600 font-medium">
-          สัปดาห์: {api.getCurrentWeekStr()}
-        </div>
+        <button
+          onClick={exportLogsCSV}
+          disabled={adminLogs.length === 0}
+          className="bg-[#C6F45D] disabled:opacity-40 text-[#222222] px-5 py-2 rounded-full font-bold text-sm active:scale-95 transition-transform cursor-pointer touch-manipulation flex items-center gap-1.5"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+          </svg>
+          Export CSV
+        </button>
       </div>
 
       {adminLogs.length === 0 ? (
@@ -845,8 +889,15 @@ export default function App() {
             <h2 className="text-3xl font-bold text-[#222222] mb-1">Weekly Payroll</h2>
             <p className="text-slate-500 text-lg">สรุปค่าแรงรายสัปดาห์ — {adminPayroll?.week || api.getCurrentWeekStr()}</p>
           </div>
-          <button className="bg-[#C6F45D] text-[#222222] px-6 py-2.5 rounded-full font-bold shadow-sm active:scale-95 transition-transform cursor-pointer touch-manipulation">
-            Export to CSV
+          <button
+            onClick={exportPayrollCSV}
+            disabled={(adminPayroll?.payroll || []).length === 0}
+            className="bg-[#C6F45D] disabled:opacity-40 text-[#222222] px-5 py-2 rounded-full font-bold text-sm active:scale-95 transition-transform cursor-pointer touch-manipulation flex items-center gap-1.5"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            Export CSV
           </button>
         </div>
 
@@ -1057,7 +1108,7 @@ export default function App() {
       </header>
 
       {/* Main */}
-      <main className="flex-1 relative z-10 flex items-center justify-center pb-12">
+      <main className={`flex-1 relative z-10 flex pb-4 ${appMode === 'ADMIN' || appMode === 'ENROLL' ? 'items-stretch' : 'items-center justify-center pb-12'}`}>
         {appMode === 'ENROLL' ? (
           <EnrollPage
             employees={employees}
