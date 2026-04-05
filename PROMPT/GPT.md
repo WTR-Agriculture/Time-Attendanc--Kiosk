@@ -85,4 +85,4 @@ Google Drive: เก็บ snapshot/reference images
 
 ใช่ ต้องมีหน้า Enroll ก่อน
 ใช่ ตอนนี้ยังสแกนจริงไม่ได้ถ้ายังเป็น mock
-ใช่ แนว Enroll → เก็บ descriptor → Kiosk เทียบหน้า คือ flow ที่ควรทำ
+ใช่ แนว Enroll → เก็บ descriptor → Kiosk เทียบหน้า คือ flow ที่ควรทำค่ะ
