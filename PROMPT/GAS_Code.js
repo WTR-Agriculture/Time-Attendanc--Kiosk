@@ -18,6 +18,16 @@ const SHEET_PAYROLL_CFG  = 'PayrollConfig';
 const SHEET_AUDIT        = 'AuditLogs';
 
 // ============================================================
+//  WORK SCHEDULE CONFIG
+//  เปลี่ยนตรงนี้ถ้าเวลาทำงานเปลี่ยน
+// ============================================================
+const SCHEDULE = {
+  'เข้างาน':     { expected: '08:00', graceMin: 20 },
+  'เข้างานบ่าย': { expected: '13:00', graceMin: 20 },
+};
+const WORK_MINS_PER_DAY = 480; // 8 ชั่วโมง
+
+// ============================================================
 //  CORS — GAS Web App จัดการ CORS ให้อัตโนมัติสำหรับ GET
 //  สำหรับ POST ให้ React ส่ง Content-Type: text/plain
 //  เพื่อหลีกเลี่ยง OPTIONS pre-flight request
@@ -245,19 +255,27 @@ function handleGetPayroll(params) {
     const empId = String(row.employeeId);
     if (!summary[empId]) {
       summary[empId] = {
-        employeeId: empId,
-        name:       row.name,
-        days:       0,
-        hours:      0,
-        rate:       rateMap[empId] ? rateMap[empId].rate : 0,
-        rateType:   rateMap[empId] ? rateMap[empId].rateType : 'daily',
-        total:      0,
+        employeeId:    empId,
+        name:          row.name,
+        days:          0,
+        hours:         0,
+        rate:          rateMap[empId] ? rateMap[empId].rate : 0,
+        rateType:      rateMap[empId] ? rateMap[empId].rateType : 'daily',
+        total:         0,
+        lateDeduction: 0,
+        netTotal:      0,
       };
     }
 
     if (row.workedHours > 0) {
       summary[empId].days  += 1;
       summary[empId].hours += row.workedHours;
+    }
+
+    // หักมาสาย (เฉพาะ daily rate)
+    if ((row.lateMins || 0) > 0 && summary[empId].rateType === 'daily') {
+      const ratePerMin = summary[empId].rate / WORK_MINS_PER_DAY;
+      summary[empId].lateDeduction += row.lateMins * ratePerMin;
     }
   });
 
@@ -269,12 +287,16 @@ function handleGetPayroll(params) {
     } else {
       emp.total = Math.round(emp.hours * emp.rate * 100) / 100;
     }
+    emp.lateDeduction = Math.round(emp.lateDeduction * 100) / 100;
+    emp.netTotal      = Math.round((emp.total - emp.lateDeduction) * 100) / 100;
   });
 
   const payroll    = Object.values(summary);
-  const grandTotal = payroll.reduce((s, e) => s + e.total, 0);
+  const grandTotal      = payroll.reduce((s, e) => s + e.total, 0);
+  const totalDeduction  = Math.round(payroll.reduce((s, e) => s + e.lateDeduction, 0) * 100) / 100;
+  const grandNetTotal   = Math.round(payroll.reduce((s, e) => s + e.netTotal, 0) * 100) / 100;
 
-  return jsonResponse({ week, payroll, grandTotal });
+  return jsonResponse({ week, payroll, grandTotal, totalDeduction, grandNetTotal });
 }
 
 // ============================================================
@@ -343,14 +365,25 @@ function groupLogsToDaily(logs) {
     if (log.actionType === 'ออกงาน')       entry.out      = log.timeStr;
   });
 
-  // คำนวณ workedHours
+  // คำนวณ workedHours + lateMinutes
   Object.values(map).forEach(entry => {
+    // คำนวณนาทีสาย
+    entry.lateMins = 0;
+    ['เข้างาน', 'เข้างานบ่าย'].forEach(function(actionType) {
+      var sched = SCHEDULE[actionType];
+      if (!sched) return;
+      var actual = actionType === 'เข้างาน' ? entry.in : entry.breakIn;
+      if (actual === '-') return;
+      var lateMin = timeToMinutes(actual) - timeToMinutes(sched.expected);
+      if (lateMin >= sched.graceMin) {
+        entry.lateMins += lateMin;
+      }
+    });
+
     if (entry.out === '-') return; // ยังไม่ออกงาน
 
     let totalMins = 0;
-
     if (entry.in !== '-') {
-      // มาเต็มวัน หรือ ครึ่งวันเช้า
       const inMins  = timeToMinutes(entry.in);
       const outMins = timeToMinutes(entry.out);
       let breakMins = 0;
@@ -359,7 +392,6 @@ function groupLogsToDaily(logs) {
       }
       totalMins = outMins - inMins - breakMins;
     } else if (entry.breakIn !== '-') {
-      // ครึ่งวันบ่าย (เข้างานบ่าย → ออกงาน)
       totalMins = timeToMinutes(entry.out) - timeToMinutes(entry.breakIn);
     }
 

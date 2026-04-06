@@ -710,10 +710,11 @@ export default function App() {
 
   const exportPayrollCSV = () => {
     const payroll = adminPayroll?.payroll || [];
-    const headers = ['รหัส', 'ชื่อ-สกุล', 'วันทำงาน', 'ชม.รวม', 'เรท', 'ประเภท', 'ยอดรวม'];
+    const headers = ['รหัส', 'ชื่อ-สกุล', 'วันทำงาน', 'ชม.รวม', 'เรท', 'ประเภท', 'ยอดรวม', 'หักมาสาย', 'สุทธิ'];
     const rows = payroll.map(p => [
       p.employeeId, p.name, p.days, p.hours,
-      p.rate, p.rateType === 'daily' ? 'รายวัน' : 'รายชั่วโมง', p.total,
+      p.rate, p.rateType === 'daily' ? 'รายวัน' : 'รายชั่วโมง',
+      p.total, p.lateDeduction || 0, p.netTotal ?? p.total,
     ]);
     const csv = [headers, ...rows].map(r => r.join(',')).join('\n');
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
@@ -905,7 +906,7 @@ export default function App() {
           <div className="flex-1 flex items-center justify-center text-slate-400 text-xl">ยังไม่มีข้อมูลในสัปดาห์นี้</div>
         ) : (
           <>
-            <div className="overflow-auto flex-1 rounded-2xl border border-slate-100 mb-6">
+            <div className="overflow-auto flex-1 rounded-2xl border border-slate-100 mb-4">
               <table className="w-full text-left border-collapse">
                 <thead className="bg-[#F8FAFC] text-slate-500 sticky top-0">
                   <tr>
@@ -913,8 +914,10 @@ export default function App() {
                     <th className="p-4 font-bold border-b border-slate-100">ชื่อ-สกุล</th>
                     <th className="p-4 font-bold border-b border-slate-100 text-center">วันทำงาน</th>
                     <th className="p-4 font-bold border-b border-slate-100 text-center">ชม.รวม</th>
-                    <th className="p-4 font-bold border-b border-slate-100 text-right">เรทค่าแรง</th>
-                    <th className="p-4 font-bold border-b border-slate-100 text-right">ยอดรวมที่ต้องจ่าย</th>
+                    <th className="p-4 font-bold border-b border-slate-100 text-right">เรท</th>
+                    <th className="p-4 font-bold border-b border-slate-100 text-right">ยอดรวม</th>
+                    <th className="p-4 font-bold border-b border-slate-100 text-right text-red-400">หักมาสาย</th>
+                    <th className="p-4 font-bold border-b border-slate-100 text-right text-[#7B8CFA]">สุทธิ</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -928,15 +931,24 @@ export default function App() {
                         <span className="font-bold text-slate-700">฿{pay.rate}</span>
                         <span className="text-sm text-slate-400 ml-1">/{pay.rateType === 'daily' ? 'วัน' : 'ชม.'}</span>
                       </td>
-                      <td className="p-4 text-right font-bold text-2xl text-[#222222]">{formatMoney(pay.total)}</td>
+                      <td className="p-4 text-right text-slate-600">{formatMoney(pay.total)}</td>
+                      <td className="p-4 text-right text-red-500 font-medium">
+                        {pay.lateDeduction > 0 ? `-${formatMoney(pay.lateDeduction)}` : '-'}
+                      </td>
+                      <td className="p-4 text-right font-bold text-xl text-[#7B8CFA]">{formatMoney(pay.netTotal ?? pay.total)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-            <div className="bg-[#F8FAFC] p-6 rounded-2xl flex justify-between items-center">
-              <div className="text-slate-500 font-medium">รวมยอดจ่ายทั้งหมด ({payroll.length} พนักงาน)</div>
-              <div className="text-4xl font-bold text-[#7B8CFA]">{formatMoney(grandTotal)}</div>
+            <div className="bg-[#F8FAFC] p-5 rounded-2xl flex justify-between items-center">
+              <div className="flex flex-col gap-1">
+                <div className="text-slate-500 font-medium">รวมยอดจ่ายทั้งหมด ({payroll.length} พนักงาน)</div>
+                {(adminPayroll?.totalDeduction > 0) && (
+                  <div className="text-red-400 text-sm">หักมาสายรวม -{formatMoney(adminPayroll.totalDeduction)}</div>
+                )}
+              </div>
+              <div className="text-4xl font-bold text-[#7B8CFA]">{formatMoney(adminPayroll?.grandNetTotal ?? grandTotal)}</div>
             </div>
           </>
         )}
