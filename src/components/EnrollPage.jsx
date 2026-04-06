@@ -30,49 +30,62 @@ function CameraCapture({ onCapture, captureCount }) {
   const [camReady, setCamReady]   = useState(false);
   const [faceFound, setFaceFound] = useState(false);
   const [capturing, setCapturing] = useState(false);
+  const [detectFail, setDetectFail] = useState(0); // นับครั้งที่ detect ไม่เจอ
 
   // ตรวจจับหน้าต่อเนื่อง
   const detect = useCallback(async () => {
-    if (!mountedRef.current || !videoRef.current || !camReady) return;
-    const result = await faceApi.detectFace(videoRef.current);
+    if (!mountedRef.current) return;
+    const video = videoRef.current;
+    if (!video || video.readyState < 2 || video.videoWidth === 0) {
+      detectTimer.current = setTimeout(detect, 400);
+      return;
+    }
+    const result = await faceApi.detectFace(video);
     if (mountedRef.current) {
       setFaceFound(!!result);
-      detectTimer.current = setTimeout(detect, 600);
+      if (!result) setDetectFail(n => n + 1);
+      else setDetectFail(0);
+      detectTimer.current = setTimeout(detect, 700);
     }
-  }, [camReady]);
-
-  useEffect(() => {
-    if (camReady) detect();
-    return () => clearTimeout(detectTimer.current);
-  }, [camReady, detect]);
+  }, []);
 
   // เริ่มกล้อง
   useEffect(() => {
     mountedRef.current = true;
+    const video = videoRef.current;
+
+    const onCanPlay = () => {
+      if (!mountedRef.current) return;
+      setCamReady(true);
+      // เริ่ม detect loop หลังกล้องพร้อม
+      detectTimer.current = setTimeout(detect, 500);
+    };
+
+    video.addEventListener('canplay', onCanPlay, { once: true });
+
     navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+      video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
       audio: false,
     }).then(stream => {
       if (!mountedRef.current) { stream.getTracks().forEach(t => t.stop()); return; }
       streamRef.current = stream;
-      videoRef.current.srcObject = stream;
-      videoRef.current.play();
-      setCamReady(true);
+      video.srcObject = stream;
+      video.play().catch(() => {});
     }).catch(() => {});
 
     return () => {
       mountedRef.current = false;
       clearTimeout(detectTimer.current);
+      video.removeEventListener('canplay', onCanPlay);
       streamRef.current?.getTracks().forEach(t => t.stop());
     };
-  }, []);
+  }, [detect]);
 
   // ถ่ายรูป + compute descriptor
   const handleCapture = async () => {
-    if (!faceFound || capturing || !videoRef.current) return;
+    if (!canCapture || !videoRef.current) return;
     setCapturing(true);
     try {
-      // วาดลง canvas
       const video = videoRef.current;
       const canvas = canvasRef.current;
       canvas.width  = video.videoWidth;
@@ -83,10 +96,11 @@ function CameraCapture({ onCapture, captureCount }) {
       ctx.drawImage(video, -canvas.width, 0);
       ctx.restore();
 
-      // detect จาก canvas (mirror แล้ว)
-      const detection = await faceApi.detectFace(canvas);
+      // ลอง detect จาก canvas ก่อน ถ้าไม่เจอให้ลอง detect จาก video โดยตรง
+      let detection = await faceApi.detectFace(canvas);
+      if (!detection) detection = await faceApi.detectFace(video);
       if (!detection) {
-        alert('ตรวจจับใบหน้าไม่สำเร็จ ลองใหม่อีกครั้ง');
+        alert('ตรวจจับใบหน้าไม่สำเร็จ\nลองขยับใกล้กล้องขึ้น หรือเพิ่มแสง แล้วกดใหม่');
         return;
       }
 
@@ -97,14 +111,24 @@ function CameraCapture({ onCapture, captureCount }) {
     }
   };
 
-  const borderColor = faceFound ? 'border-[#C6F45D]' : 'border-slate-300';
+  // ถ้า detect ไม่เจอนานเกิน 5 รอบ ให้ fallback เปิดปุ่มได้ (admin mode)
+  const canCapture = camReady && !capturing && (faceFound || detectFail >= 5);
+  const borderColor = !camReady ? 'border-slate-200' : faceFound ? 'border-[#C6F45D]' : detectFail >= 5 ? 'border-amber-300' : 'border-slate-300';
 
   return (
     <div className="flex flex-col items-center gap-6 w-full">
       {/* Camera view */}
-      <div className={`relative w-72 h-72 rounded-[2.5rem] overflow-hidden border-[6px] ${borderColor} bg-black shadow-md transition-colors`}>
+      <div className={`relative w-72 h-72 rounded-[2.5rem] overflow-hidden border-[6px] ${borderColor} bg-black shadow-md transition-colors duration-300`}>
         <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover scale-x-[-1]" playsInline muted />
         <canvas ref={canvasRef} className="hidden" />
+
+        {/* Loading overlay */}
+        {!camReady && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 gap-3">
+            <div className="w-10 h-10 border-4 border-white/20 border-t-white rounded-full animate-spin" />
+            <p className="text-white text-sm font-medium">เปิดกล้อง...</p>
+          </div>
+        )}
 
         {/* กรอบมุม */}
         <div className="absolute inset-3 pointer-events-none">
@@ -114,24 +138,30 @@ function CameraCapture({ onCapture, captureCount }) {
               pos === 'tr' ? 'top-0 right-0 border-t-4 border-r-4 rounded-tr-lg' :
               pos === 'bl' ? 'bottom-0 left-0 border-b-4 border-l-4 rounded-bl-lg' :
                              'bottom-0 right-0 border-b-4 border-r-4 rounded-br-lg'
-            } ${faceFound ? 'border-[#C6F45D]' : 'border-slate-400'} transition-colors`} />
+            } ${faceFound ? 'border-[#C6F45D]' : detectFail >= 5 ? 'border-amber-300' : 'border-slate-400'} transition-colors`} />
           ))}
         </div>
 
         {/* Face status overlay */}
-        <div className={`absolute bottom-3 left-3 right-3 py-2 rounded-full text-center text-sm font-bold transition-all ${
-          faceFound ? 'bg-[#C6F45D] text-[#222222]' : 'bg-black/50 text-white'
-        }`}>
-          {faceFound ? '✓ พบใบหน้า — พร้อมถ่าย' : 'หันหน้าตรงเข้ากล้อง'}
-        </div>
+        {camReady && (
+          <div className={`absolute bottom-3 left-3 right-3 py-2 rounded-full text-center text-sm font-bold transition-all ${
+            faceFound ? 'bg-[#C6F45D] text-[#222222]' :
+            detectFail >= 5 ? 'bg-amber-400/90 text-[#222222]' :
+            'bg-black/50 text-white'
+          }`}>
+            {faceFound ? '✓ พบใบหน้า — พร้อมถ่าย' :
+             detectFail >= 5 ? 'กดถ่ายได้เลย (manual)' :
+             'หันหน้าตรงเข้ากล้อง'}
+          </div>
+        )}
       </div>
 
       {/* Capture button */}
       <button
         onClick={handleCapture}
-        disabled={!faceFound || capturing}
+        disabled={!canCapture}
         className={`px-12 py-5 rounded-full text-2xl font-bold transition-all touch-manipulation ${
-          faceFound && !capturing
+          canCapture
             ? 'bg-[#7B8CFA] text-white shadow-md active:scale-95'
             : 'bg-slate-200 text-slate-400 cursor-not-allowed'
         }`}
