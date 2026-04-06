@@ -962,7 +962,7 @@ export default function App() {
   const renderAdminSettings = () => {
     const pct = (v) => Math.round((1 - v / 0.6) * 100);
     return (
-      <div className="flex flex-col gap-8 max-w-2xl mx-auto w-full pt-4 animate-fade-in">
+      <div className="flex flex-col gap-8 max-w-2xl mx-auto w-full pt-4 animate-fade-in overflow-y-auto pb-4">
         <div>
           <h2 className="text-3xl font-bold text-[#222222] mb-1">ตั้งค่าระบบ</h2>
           <p className="text-slate-400 text-lg">ปรับ threshold การจดจำใบหน้า — บันทึกอัตโนมัติ</p>
