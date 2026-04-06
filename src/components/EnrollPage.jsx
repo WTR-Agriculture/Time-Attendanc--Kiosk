@@ -111,9 +111,9 @@ function CameraCapture({ onCapture, captureCount }) {
     }
   };
 
-  // ถ้า detect ไม่เจอนานเกิน 5 รอบ ให้ fallback เปิดปุ่มได้ (admin mode)
-  const canCapture = camReady && !capturing && (faceFound || detectFail >= 5);
-  const borderColor = !camReady ? 'border-slate-200' : faceFound ? 'border-[#C6F45D]' : detectFail >= 5 ? 'border-amber-300' : 'border-slate-300';
+  // admin mode: ปุ่มกดได้ทันทีที่กล้องพร้อม ไม่ต้อง detect ก่อน
+  const canCapture = camReady && !capturing;
+  const borderColor = !camReady ? 'border-slate-200' : faceFound ? 'border-[#C6F45D]' : 'border-slate-300';
 
   return (
     <div className="flex flex-col items-center gap-6 w-full">
@@ -145,13 +145,9 @@ function CameraCapture({ onCapture, captureCount }) {
         {/* Face status overlay */}
         {camReady && (
           <div className={`absolute bottom-3 left-3 right-3 py-2 rounded-full text-center text-sm font-bold transition-all ${
-            faceFound ? 'bg-[#C6F45D] text-[#222222]' :
-            detectFail >= 5 ? 'bg-amber-400/90 text-[#222222]' :
-            'bg-black/50 text-white'
+            faceFound ? 'bg-[#C6F45D] text-[#222222]' : 'bg-black/50 text-white'
           }`}>
-            {faceFound ? '✓ พบใบหน้า — พร้อมถ่าย' :
-             detectFail >= 5 ? 'กดถ่ายได้เลย (manual)' :
-             'หันหน้าตรงเข้ากล้อง'}
+            {faceFound ? '✓ พบใบหน้า — พร้อมถ่าย' : 'หันหน้าตรงเข้ากล้อง'}
           </div>
         )}
       </div>
