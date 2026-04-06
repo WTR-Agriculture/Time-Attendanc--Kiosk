@@ -792,7 +792,7 @@ export default function App() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 w-full bg-white rounded-3xl shadow-sm border border-slate-100 p-6 overflow-hidden flex flex-col min-h-0">
+      <div className="flex-1 w-full bg-white rounded-3xl shadow-sm border border-slate-100 p-6 overflow-auto flex flex-col min-h-0" style={{WebkitOverflowScrolling:'touch'}}>
         {adminLoading ? (
           <div className="flex-1 flex items-center justify-center gap-4 text-slate-400 text-xl">
             <div className="w-8 h-8 border-4 border-slate-100 border-t-[#7B8CFA] rounded-full animate-spin" />
