@@ -198,14 +198,19 @@ function handleGetLogs(params) {
   const rows  = sheet.getDataRange().getValues();
 
   // header: id | employeeId | name | actionType | timestamp | dateStr | timeStr | confidence | deviceId | createdAt
+  // Google Sheets อาจแปลง dateStr/timeStr เป็น Date object อัตโนมัติ → ต้อง format กลับ
   let logs = rows.slice(1).map(r => ({
     id:              r[0],
     employeeId:      String(r[1]),
     name:            r[2],
     actionType:      r[3],
     timestamp:       r[4],
-    dateStr:         r[5],
-    timeStr:         r[6],
+    dateStr:         r[5] instanceof Date
+                       ? Utilities.formatDate(r[5], 'Asia/Bangkok', 'yyyy-MM-dd')
+                       : String(r[5]),
+    timeStr:         r[6] instanceof Date
+                       ? Utilities.formatDate(r[6], 'Asia/Bangkok', 'HH:mm:ss')
+                       : String(r[6]),
     confidenceScore: r[7],
     deviceId:        r[8],
   }));
