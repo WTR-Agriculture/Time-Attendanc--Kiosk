@@ -792,7 +792,7 @@ export default function App() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 w-full bg-white rounded-3xl shadow-sm border border-slate-100 p-6 overflow-auto flex flex-col min-h-0" style={{WebkitOverflowScrolling:'touch'}}>
+      <div className="flex-1 w-full bg-white rounded-3xl shadow-sm border border-slate-100 p-6 overflow-y-auto flex flex-col" style={{ WebkitOverflowScrolling: 'touch', maxHeight: 'calc(100vh - 200px)' }}>
         {adminLoading ? (
           <div className="flex-1 flex items-center justify-center gap-4 text-slate-400 text-xl">
             <div className="w-8 h-8 border-4 border-slate-100 border-t-[#7B8CFA] rounded-full animate-spin" />
@@ -960,9 +960,10 @@ export default function App() {
   //  ADMIN: Settings Tab
   // ============================================================
   const renderAdminSettings = () => {
-    const pct = (v) => Math.round((1 - v / 0.6) * 100);
+    // Distance 0.0 = 100%, Distance 0.6 = 0%
+    const pct = (v) => Math.max(0, Math.min(100, Math.round((1 - v / 0.6) * 100)));
     return (
-      <div className="flex flex-col gap-8 max-w-2xl mx-auto w-full pt-4 animate-fade-in flex-1 min-h-0 overflow-y-auto pb-6" style={{WebkitOverflowScrolling:'touch'}}>
+      <div className="flex flex-col gap-8 max-w-2xl mx-auto w-full pt-4 animate-fade-in pb-10">
         <div>
           <h2 className="text-3xl font-bold text-[#222222] mb-1">ตั้งค่าระบบ</h2>
           <p className="text-slate-400 text-lg">ปรับ threshold การจดจำใบหน้า — บันทึกอัตโนมัติ</p>

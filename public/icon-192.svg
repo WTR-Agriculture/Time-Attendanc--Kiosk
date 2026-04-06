@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192">
-  <rect width="192" height="192" rx="40" fill="#7B8CFA"/>
-  <rect x="36" y="56" width="120" height="80" rx="16" fill="white" opacity="0.15"/>
-  <circle cx="96" cy="80" r="24" fill="white" opacity="0.9"/>
-  <path d="M60 136 Q96 112 132 136" stroke="white" stroke-width="8" fill="none" stroke-linecap="round" opacity="0.9"/>
-  <text x="96" y="174" text-anchor="middle" font-family="sans-serif" font-size="18" font-weight="bold" fill="white" opacity="0.8">KIOSK</text>
-</svg>
