@@ -104,7 +104,7 @@ function handleGetEmployees() {
 //  POST: logAttendance
 //  Body: { action, employeeId, employeeName, actionType,
 //          confidenceScore, deviceId }
-//  actionType: 'เข้างาน' | 'พักเที่ยง' | 'กลับจากพัก' | 'ออกงาน'
+//  actionType: 'เข้างาน' | 'พักเที่ยง' | 'เข้างานบ่าย' | 'ออกงาน'
 // ============================================================
 function handleLogAttendance(body) {
   // Validate required fields
@@ -298,22 +298,19 @@ function handleGetStatus(params) {
   const actions = todayLogs.map(l => l.actionType);
   const lastAction = actions.length > 0 ? actions[actions.length - 1] : null;
 
-  // บอกว่า action ไหนทำได้ต่อไป
-  const nextAllowed = getNextAllowedActions(lastAction);
+  // บอกว่า action ไหนทำได้ต่อไป (กดซ้ำไม่ได้ แต่นอกนั้นกดได้หมด)
+  const nextAllowed = getNextAllowedActions(actions);
 
   return jsonResponse({ empId: params.empId, date: today, todayLogs, lastAction, nextAllowed });
 }
 
 // ============================================================
 //  HELPER: nextAllowedActions
-//  ลำดับ: เข้างาน → พักเที่ยง → กลับจากพัก → ออกงาน
+//  กดปุ่มเดิมซ้ำในวันเดียวไม่ได้ นอกนั้นกดได้หมด
 // ============================================================
-function getNextAllowedActions(lastAction) {
-  const flow = ['เข้างาน', 'พักเที่ยง', 'กลับจากพัก', 'ออกงาน'];
-  if (!lastAction)             return ['เข้างาน'];
-  const idx = flow.indexOf(lastAction);
-  if (idx === -1 || idx === flow.length - 1) return [];
-  return [flow[idx + 1]];
+function getNextAllowedActions(actionsDoneToday) {
+  const all = ['เข้างาน', 'พักเที่ยง', 'เข้างานบ่าย', 'ออกงาน'];
+  return all.filter(a => !actionsDoneToday.includes(a));
 }
 
 // ============================================================
@@ -342,22 +339,31 @@ function groupLogsToDaily(logs) {
     const entry = map[key];
     if (log.actionType === 'เข้างาน')      entry.in       = log.timeStr;
     if (log.actionType === 'พักเที่ยง')    entry.breakOut = log.timeStr;
-    if (log.actionType === 'กลับจากพัก')  entry.breakIn  = log.timeStr;
+    if (log.actionType === 'เข้างานบ่าย')  entry.breakIn  = log.timeStr;
     if (log.actionType === 'ออกงาน')       entry.out      = log.timeStr;
   });
 
   // คำนวณ workedHours
   Object.values(map).forEach(entry => {
-    if (entry.in !== '-' && entry.out !== '-') {
-      const inMins   = timeToMinutes(entry.in);
-      const outMins  = timeToMinutes(entry.out);
-      let breakMins  = 0;
+    if (entry.out === '-') return; // ยังไม่ออกงาน
 
+    let totalMins = 0;
+
+    if (entry.in !== '-') {
+      // มาเต็มวัน หรือ ครึ่งวันเช้า
+      const inMins  = timeToMinutes(entry.in);
+      const outMins = timeToMinutes(entry.out);
+      let breakMins = 0;
       if (entry.breakOut !== '-' && entry.breakIn !== '-') {
         breakMins = timeToMinutes(entry.breakIn) - timeToMinutes(entry.breakOut);
       }
+      totalMins = outMins - inMins - breakMins;
+    } else if (entry.breakIn !== '-') {
+      // ครึ่งวันบ่าย (เข้างานบ่าย → ออกงาน)
+      totalMins = timeToMinutes(entry.out) - timeToMinutes(entry.breakIn);
+    }
 
-      const totalMins  = outMins - inMins - breakMins;
+    if (totalMins > 0) {
       entry.workedHours = Math.round((totalMins / 60) * 100) / 100;
       entry.status      = 'complete';
     }

@@ -138,7 +138,7 @@ export default function App() {
   // --- Matched employee & status ---
   const [matchedEmp,    setMatchedEmp]    = useState(null);
   const [matchConfidence, setMatchConfidence] = useState(0);
-  const [nextAllowed,   setNextAllowed]   = useState(['เข้างาน']);
+  const [nextAllowed,   setNextAllowed]   = useState(['เข้างาน', 'พักเที่ยง', 'เข้างานบ่าย', 'ออกงาน']);
   const [statusLoading, setStatusLoading] = useState(false);
 
   // --- Submit state ---
@@ -341,7 +341,7 @@ export default function App() {
     setStatusLoading(true);
     try {
       const data = await api.getStatus(empId);
-      setNextAllowed(data.nextAllowed || ['เข้างาน']);
+      setNextAllowed(data.nextAllowed || ['เข้างาน', 'พักเที่ยง', 'เข้างานบ่าย', 'ออกงาน']);
     } catch (err) {
       console.error('getStatus failed:', err);
       setNextAllowed(['เข้างาน']);
@@ -538,7 +538,7 @@ export default function App() {
     const actions = [
       { name: 'เข้างาน',     color: 'bg-[#222222]', textColor: 'text-white',     pillColor: 'bg-white/20 text-white',     icon: <SunIcon className="w-32 h-32 text-white/90" />,          subtitle: 'เริ่มงาน' },
       { name: 'พักเที่ยง',   color: 'bg-[#C6F45D]', textColor: 'text-[#222222]', pillColor: 'bg-white/60 text-[#222222]', icon: <CupIcon className="w-32 h-32 text-[#222222]/90" />,       subtitle: 'พักทานข้าว' },
-      { name: 'กลับจากพัก', color: 'bg-[#FDD5F5]', textColor: 'text-[#222222]', pillColor: 'bg-white/60 text-[#222222]', icon: <BriefcaseIcon className="w-32 h-32 text-[#222222]/90" />, subtitle: 'เริ่มช่วงบ่าย' },
+      { name: 'เข้างานบ่าย', color: 'bg-[#FDD5F5]', textColor: 'text-[#222222]', pillColor: 'bg-white/60 text-[#222222]', icon: <BriefcaseIcon className="w-32 h-32 text-[#222222]/90" />, subtitle: 'เริ่มช่วงบ่าย' },
       { name: 'ออกงาน',     color: 'bg-[#7B8CFA]', textColor: 'text-white',     pillColor: 'bg-white/20 text-white',     icon: <LogoutIcon className="w-32 h-32 text-white/90" />,         subtitle: 'เลิกงาน' },
     ];
 
