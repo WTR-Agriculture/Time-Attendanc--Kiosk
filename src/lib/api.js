@@ -86,6 +86,24 @@ export async function getPayroll(params = {}) {
 }
 
 // ============================================================
+//  logOT — บันทึก OT
+//  params: { employeeId, employeeName, date: 'YYYY-MM-DD', hours }
+//  return: { success, message }
+// ============================================================
+export async function logOT({ employeeId, employeeName, date, hours }) {
+  return gasPost({ action: 'logOT', employeeId, employeeName, date, hours });
+}
+
+// ============================================================
+//  getOT — ดึงรายการ OT
+//  params: { week: 'YYYY-WW' } หรือไม่ส่งก็ได้ (ดึงทั้งหมด)
+//  return: { otLogs: [...] }
+// ============================================================
+export async function getOT(params = {}) {
+  return gasGet({ action: 'getOT', ...params });
+}
+
+// ============================================================
 //  getCurrentWeekStr — helper คืน "YYYY-WW" สัปดาห์ปัจจุบัน
 // ============================================================
 export function getCurrentWeekStr() {

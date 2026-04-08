@@ -16,6 +16,7 @@ const SHEET_EMPLOYEES    = 'Employees';
 const SHEET_LOGS         = 'AttendanceLogs';
 const SHEET_PAYROLL_CFG  = 'PayrollConfig';
 const SHEET_AUDIT        = 'AuditLogs';
+const SHEET_OT_LOGS      = 'OTLogs';
 
 // ============================================================
 //  WORK SCHEDULE CONFIG
@@ -55,6 +56,7 @@ function doGet(e) {
     if (action === 'getLogs')       return handleGetLogs(e.parameter);
     if (action === 'getPayroll')    return handleGetPayroll(e.parameter);
     if (action === 'getStatus')     return handleGetStatus(e.parameter);
+    if (action === 'getOT')         return handleGetOT(e.parameter);
 
     return jsonResponse({ error: 'Unknown action' }, 400);
 
@@ -77,6 +79,7 @@ function doPost(e) {
 
     if (action === 'logAttendance') return handleLogAttendance(body);
     if (action === 'enrollFace')    return handleEnrollFace(body);
+    if (action === 'logOT')         return handleLogOT(body);
 
     return jsonResponse({ error: 'Unknown action' }, 400);
 
@@ -243,12 +246,23 @@ function handleGetPayroll(params) {
   // ดึง logs
   const logResult = handleGetLogs({ week });
   const logData   = JSON.parse(logResult.getContent());
-  const daily     = logData.logs; // grouped daily records
+  const daily     = logData.logs;
+
+  // ดึง OT logs ของสัปดาห์นี้
+  const otResult = handleGetOT({ week });
+  const otData   = JSON.parse(otResult.getContent());
+  const otLogs   = otData.otLogs || [];
+
+  // สร้าง OT map: empId → totalOTHours
+  const otMap = {};
+  otLogs.forEach(ot => {
+    if (!otMap[ot.employeeId]) otMap[ot.employeeId] = 0;
+    otMap[ot.employeeId] += ot.hours;
+  });
 
   // ดึง config ค่าแรง
   const cfgSheet = getSheet(SHEET_PAYROLL_CFG);
   const cfgRows  = cfgSheet.getDataRange().getValues();
-  // header: employeeId | name | rate | rateType
   const rateMap = {};
   cfgRows.slice(1).forEach(r => {
     rateMap[String(r[0])] = { rate: Number(r[2]), rateType: r[3] };
@@ -268,6 +282,8 @@ function handleGetPayroll(params) {
         rateType:      rateMap[empId] ? rateMap[empId].rateType : 'daily',
         total:         0,
         lateDeduction: 0,
+        otHours:       0,
+        otAmount:      0,
         netTotal:      0,
       };
     }
@@ -284,7 +300,7 @@ function handleGetPayroll(params) {
     }
   });
 
-  // คำนวณยอดรวม
+  // คำนวณยอดรวม + OT
   Object.values(summary).forEach(emp => {
     emp.hours = Math.round(emp.hours * 100) / 100;
     if (emp.rateType === 'daily') {
@@ -293,15 +309,20 @@ function handleGetPayroll(params) {
       emp.total = Math.round(emp.hours * emp.rate * 100) / 100;
     }
     emp.lateDeduction = Math.round(emp.lateDeduction * 100) / 100;
-    emp.netTotal      = Math.round((emp.total - emp.lateDeduction) * 100) / 100;
+
+    // OT: rate/8 × ชม. OT
+    emp.otHours  = Math.round((otMap[emp.employeeId] || 0) * 100) / 100;
+    emp.otAmount = Math.round((emp.otHours * (emp.rate / 8)) * 100) / 100;
+    emp.netTotal = Math.round((emp.total - emp.lateDeduction + emp.otAmount) * 100) / 100;
   });
 
-  const payroll    = Object.values(summary);
-  const grandTotal      = payroll.reduce((s, e) => s + e.total, 0);
-  const totalDeduction  = Math.round(payroll.reduce((s, e) => s + e.lateDeduction, 0) * 100) / 100;
-  const grandNetTotal   = Math.round(payroll.reduce((s, e) => s + e.netTotal, 0) * 100) / 100;
+  const payroll       = Object.values(summary);
+  const grandTotal    = Math.round(payroll.reduce((s, e) => s + e.total, 0) * 100) / 100;
+  const totalDeduction = Math.round(payroll.reduce((s, e) => s + e.lateDeduction, 0) * 100) / 100;
+  const totalOT       = Math.round(payroll.reduce((s, e) => s + e.otAmount, 0) * 100) / 100;
+  const grandNetTotal = Math.round(payroll.reduce((s, e) => s + e.netTotal, 0) * 100) / 100;
 
-  return jsonResponse({ week, payroll, grandTotal, totalDeduction, grandNetTotal });
+  return jsonResponse({ week, payroll, grandTotal, totalDeduction, totalOT, grandNetTotal });
 }
 
 // ============================================================
@@ -319,7 +340,12 @@ function handleGetStatus(params) {
   const rows  = sheet.getDataRange().getValues();
 
   const todayLogs = rows.slice(1)
-    .filter(r => String(r[1]) === String(params.empId) && r[5] === today)
+    .filter(r => {
+      const dateVal = r[5] instanceof Date
+        ? Utilities.formatDate(r[5], 'Asia/Bangkok', 'yyyy-MM-dd')
+        : String(r[5]);
+      return String(r[1]) === String(params.empId) && dateVal === today;
+    })
     .map(r => ({ actionType: r[3], timeStr: r[6] }));
 
   const actions = todayLogs.map(l => l.actionType);
@@ -329,6 +355,68 @@ function handleGetStatus(params) {
   const nextAllowed = getNextAllowedActions(actions);
 
   return jsonResponse({ empId: params.empId, date: today, todayLogs, lastAction, nextAllowed });
+}
+
+// ============================================================
+//  POST: logOT — บันทึก OT รายวัน (Admin เท่านั้น)
+//  Body: { action, employeeId, employeeName, date, hours }
+// ============================================================
+function handleLogOT(body) {
+  if (!body.employeeId || !body.date || !body.hours) {
+    return jsonResponse({ error: 'Missing employeeId, date, or hours' }, 400);
+  }
+
+  const hours = Number(body.hours);
+  if (isNaN(hours) || hours <= 0) {
+    return jsonResponse({ error: 'hours must be a positive number' }, 400);
+  }
+
+  const sheet = getSheet(SHEET_OT_LOGS);
+  const now   = new Date();
+
+  // ลบรายการเดิมของ empId+date ถ้ามี (overwrite)
+  const rows = sheet.getDataRange().getValues();
+  for (let i = rows.length - 1; i >= 1; i--) {
+    if (String(rows[i][0]) === String(body.employeeId) && rows[i][2] === body.date) {
+      sheet.deleteRow(i + 1);
+    }
+  }
+
+  sheet.appendRow([
+    String(body.employeeId),   // A: employeeId
+    body.employeeName || '',   // B: name
+    body.date,                 // C: date (YYYY-MM-DD)
+    hours,                     // D: hours
+    now,                       // E: createdAt
+  ]);
+
+  writeAuditLog('LOG_OT', `${body.employeeName} OT ${hours}ชม. วันที่ ${body.date}`, '');
+  return jsonResponse({ success: true, message: `บันทึก OT ${hours} ชม. สำเร็จ` });
+}
+
+// ============================================================
+//  GET: getOT — ดึงรายการ OT
+//  Params: week=YYYY-WW (optional)
+// ============================================================
+function handleGetOT(params) {
+  const sheet = getSheet(SHEET_OT_LOGS);
+  const rows  = sheet.getDataRange().getValues();
+
+  let otLogs = rows.slice(1).map(r => ({
+    employeeId: String(r[0]),
+    name:       r[1],
+    date:       r[2] instanceof Date
+                  ? Utilities.formatDate(r[2], 'Asia/Bangkok', 'yyyy-MM-dd')
+                  : String(r[2]),
+    hours:      Number(r[3]) || 0,
+  }));
+
+  if (params.week) {
+    const weekDates = getWeekDates(params.week);
+    otLogs = otLogs.filter(l => l.date >= weekDates.start && l.date <= weekDates.end);
+  }
+
+  return jsonResponse({ otLogs });
 }
 
 // ============================================================
@@ -480,6 +568,9 @@ function initSheetHeaders(sheet, name) {
     [SHEET_AUDIT]: [
       'eventType', 'detail', 'payload', 'createdAt',
     ],
+    [SHEET_OT_LOGS]: [
+      'employeeId', 'name', 'date', 'hours', 'createdAt',
+    ],
   };
 
   const h = headers[name];
@@ -511,7 +602,7 @@ function writeAuditLog(eventType, detail, payload) {
 //  วิธีรัน: Apps Script Editor → เลือก setupSheets → กด Run
 // ============================================================
 function setupSheets() {
-  [SHEET_EMPLOYEES, SHEET_LOGS, SHEET_PAYROLL_CFG, SHEET_AUDIT].forEach(name => {
+  [SHEET_EMPLOYEES, SHEET_LOGS, SHEET_PAYROLL_CFG, SHEET_AUDIT, SHEET_OT_LOGS].forEach(name => {
     getSheet(name); // สร้างถ้ายังไม่มี
   });
 

@@ -166,6 +166,13 @@ export default function App() {
   const [adminPayroll, setAdminPayroll] = useState(null);
   const [adminLoading, setAdminLoading] = useState(false);
   const [adminError,   setAdminError]   = useState(null);
+  // OT state
+  const [otEmpId,     setOtEmpId]     = useState('');
+  const [otDate,      setOtDate]      = useState('');
+  const [otHours,     setOtHours]     = useState('');
+  const [otSaving,    setOtSaving]    = useState(false);
+  const [otSuccess,   setOtSuccess]   = useState(null);
+  const [otError,     setOtError]     = useState(null);
   const adminTimeoutRef = useRef(null);
 
   // ============================================================
@@ -287,6 +294,7 @@ export default function App() {
   // ============================================================
   async function loadAdminData(tab) {
     const activeTab = tab || adminTab;
+    if (activeTab === 'OT' || activeTab === 'SETTINGS') return;
     setAdminLoading(true);
     setAdminError(null);
     try {
@@ -309,6 +317,29 @@ export default function App() {
   const handleAdminTabChange = (tab) => {
     setAdminTab(tab);
     loadAdminData(tab);
+  };
+
+  const handleSubmitOT = async () => {
+    if (!otEmpId || !otDate || !otHours) return;
+    setOtSaving(true);
+    setOtSuccess(null);
+    setOtError(null);
+    try {
+      const emp = employees.find(e => e.employeeId === otEmpId);
+      await api.logOT({
+        employeeId:   otEmpId,
+        employeeName: emp?.name || otEmpId,
+        date:         otDate,
+        hours:        parseFloat(otHours),
+      });
+      setOtSuccess(`บันทึก OT ${otHours} ชม. ให้ ${emp?.name || otEmpId} วันที่ ${otDate} สำเร็จ`);
+      setOtHours('');
+    } catch (err) {
+      setOtError('บันทึก OT ไม่สำเร็จ กรุณาลองใหม่');
+      console.error(err);
+    } finally {
+      setOtSaving(false);
+    }
   };
 
   // ============================================================
@@ -710,11 +741,11 @@ export default function App() {
 
   const exportPayrollCSV = () => {
     const payroll = adminPayroll?.payroll || [];
-    const headers = ['รหัส', 'ชื่อ-สกุล', 'วันทำงาน', 'ชม.รวม', 'เรท', 'ประเภท', 'ยอดรวม', 'หักมาสาย', 'สุทธิ'];
+    const headers = ['รหัส', 'ชื่อ-สกุล', 'วันทำงาน', 'ชม.รวม', 'เรท', 'ประเภท', 'ยอดรวม', 'หักมาสาย', 'OT ชม.', 'OT บาท', 'สุทธิ'];
     const rows = payroll.map(p => [
       p.employeeId, p.name, p.days, p.hours,
       p.rate, p.rateType === 'daily' ? 'รายวัน' : 'รายชั่วโมง',
-      p.total, p.lateDeduction || 0, p.netTotal ?? p.total,
+      p.total, p.lateDeduction || 0, p.otHours || 0, p.otAmount || 0, p.netTotal ?? p.total,
     ]);
     const csv = [headers, ...rows].map(r => r.join(',')).join('\n');
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
@@ -769,6 +800,15 @@ export default function App() {
               <CashIcon className="w-4 h-4" /> ค่าแรง
             </button>
             <button
+              onClick={() => handleAdminTabChange('OT')}
+              className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-base font-bold transition-all ${adminTab === 'OT' ? 'bg-white text-[#222222] shadow-sm' : 'text-slate-500'}`}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              OT
+            </button>
+            <button
               onClick={() => setAdminTab('SETTINGS')}
               className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-base font-bold transition-all ${adminTab === 'SETTINGS' ? 'bg-white text-[#222222] shadow-sm' : 'text-slate-500'}`}
             >
@@ -809,6 +849,8 @@ export default function App() {
           renderAdminLogs()
         ) : adminTab === 'PAYROLL' ? (
           renderAdminPayroll()
+        ) : adminTab === 'OT' ? (
+          renderAdminOT()
         ) : (
           renderAdminSettings()
         )}
@@ -917,6 +959,7 @@ export default function App() {
                     <th className="p-4 font-bold border-b border-slate-100 text-right">เรท</th>
                     <th className="p-4 font-bold border-b border-slate-100 text-right">ยอดรวม</th>
                     <th className="p-4 font-bold border-b border-slate-100 text-right text-red-400">หักมาสาย</th>
+                    <th className="p-4 font-bold border-b border-slate-100 text-right text-emerald-500">OT ชม.</th>
                     <th className="p-4 font-bold border-b border-slate-100 text-right text-[#7B8CFA]">สุทธิ</th>
                   </tr>
                 </thead>
@@ -934,6 +977,9 @@ export default function App() {
                       <td className="p-4 text-right text-slate-600">{formatMoney(pay.total)}</td>
                       <td className="p-4 text-right text-red-500 font-medium">
                         {pay.lateDeduction > 0 ? `-${formatMoney(pay.lateDeduction)}` : '-'}
+                      </td>
+                      <td className="p-4 text-right text-emerald-600 font-medium">
+                        {pay.otHours > 0 ? `+${pay.otHours} ชม.` : '-'}
                       </td>
                       <td className="p-4 text-right font-bold text-xl text-[#7B8CFA]">{formatMoney(pay.netTotal ?? pay.total)}</td>
                     </tr>
@@ -1042,6 +1088,89 @@ export default function App() {
       </div>
     );
   };
+
+  // ============================================================
+  //  ADMIN: OT Tab
+  // ============================================================
+  const renderAdminOT = () => (
+    <div className="flex flex-col gap-6 max-w-lg mx-auto w-full pt-4 animate-fade-in">
+      <div>
+        <h2 className="text-3xl font-bold text-[#222222] mb-1">บันทึก OT</h2>
+        <p className="text-slate-400 text-lg">Admin คีย์ OT ย้อนหลังได้ — ข้อมูลเดิมจะถูกแทนที่</p>
+      </div>
+
+      <div className="bg-[#F8FAFC] p-8 rounded-3xl border border-slate-100 flex flex-col gap-5">
+        {/* Employee */}
+        <div className="flex flex-col gap-2">
+          <label className="text-base font-bold text-slate-600">พนักงาน</label>
+          <select
+            value={otEmpId}
+            onChange={e => { setOtEmpId(e.target.value); setOtSuccess(null); setOtError(null); }}
+            className="w-full bg-white border border-slate-200 rounded-2xl px-5 py-3.5 text-lg text-[#222222] focus:outline-none focus:ring-2 focus:ring-[#7B8CFA] cursor-pointer"
+          >
+            <option value="">-- เลือกพนักงาน --</option>
+            {employees.map(emp => (
+              <option key={emp.employeeId} value={emp.employeeId}>
+                {emp.name} ({emp.employeeId})
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Date */}
+        <div className="flex flex-col gap-2">
+          <label className="text-base font-bold text-slate-600">วันที่</label>
+          <input
+            type="date"
+            value={otDate}
+            onChange={e => { setOtDate(e.target.value); setOtSuccess(null); setOtError(null); }}
+            className="w-full bg-white border border-slate-200 rounded-2xl px-5 py-3.5 text-lg text-[#222222] focus:outline-none focus:ring-2 focus:ring-[#7B8CFA] cursor-pointer"
+          />
+        </div>
+
+        {/* Hours */}
+        <div className="flex flex-col gap-2">
+          <label className="text-base font-bold text-slate-600">จำนวนชั่วโมง OT</label>
+          <input
+            type="number"
+            min="0.5"
+            max="24"
+            step="0.5"
+            placeholder="เช่น 2 หรือ 2.5"
+            value={otHours}
+            onChange={e => { setOtHours(e.target.value); setOtSuccess(null); setOtError(null); }}
+            className="w-full bg-white border border-slate-200 rounded-2xl px-5 py-3.5 text-lg text-[#222222] focus:outline-none focus:ring-2 focus:ring-[#7B8CFA]"
+          />
+        </div>
+
+        {/* Submit */}
+        <button
+          onClick={handleSubmitOT}
+          disabled={!otEmpId || !otDate || !otHours || otSaving}
+          className="w-full bg-[#7B8CFA] disabled:opacity-40 text-white text-xl font-bold py-4 rounded-2xl active:scale-[0.98] transition-transform cursor-pointer touch-manipulation flex items-center justify-center gap-3"
+        >
+          {otSaving ? (
+            <>
+              <div className="w-5 h-5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+              กำลังบันทึก...
+            </>
+          ) : 'บันทึก OT'}
+        </button>
+
+        {/* Feedback */}
+        {otSuccess && (
+          <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 px-5 py-4 rounded-2xl text-base font-medium">
+            ✓ {otSuccess}
+          </div>
+        )}
+        {otError && (
+          <div className="bg-red-50 border border-red-200 text-red-600 px-5 py-4 rounded-2xl text-base font-medium">
+            {otError}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 
   // ============================================================
   //  PIN Modal
