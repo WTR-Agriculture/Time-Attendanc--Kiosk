@@ -1,38 +1,91 @@
 // ============================================================
-//  EnrollPage — ลงทะเบียนใบหน้าพนักงาน (Admin เท่านั้น)
-//  Flow: เลือกพนักงาน → เปิดกล้อง → ถ่าย 5 รูป → บันทึก
+//  EnrollPage — ลงทะเบียนใบหน้าพนักงาน (Server-side InsightFace)
+//  Flow: 5 ท่า auto-capture → ส่ง base64 ไป server → บันทึก
 //  Props:
-//    employees     - รายชื่อพนักงานทั้งหมด
-//    onDone        - callback() เมื่อ enroll สำเร็จ (refresh employees)
-//    onBack        - callback() กลับหน้า admin
+//    employees        - รายชื่อพนักงานทั้งหมด
+//    initialEmployee  - pre-select พนักงาน (ข้ามหน้าเลือก)
+//    onDone           - callback() เมื่อ enroll สำเร็จ
+//    onBack           - callback() กลับหน้า admin
 // ============================================================
 import { useState, useRef, useEffect, useCallback } from 'react';
 import * as faceApi from '../lib/faceApi';
 import * as api     from '../lib/api';
 
-const REQUIRED_CAPTURES = 5;
+// ============================================================
+//  5 ท่าที่ต้องสแกน
+// ============================================================
+const POSES = [
+  { id: 'front',  label: 'หน้าตรง',       icon: '😐', hint: 'มองตรงเข้ากล้อง' },
+  { id: 'left',   label: 'หันซ้าย',        icon: '👈', hint: 'หันหน้าไปทางซ้ายเล็กน้อย' },
+  { id: 'right',  label: 'หันขวา',         icon: '👉', hint: 'หันหน้าไปทางขวาเล็กน้อย' },
+  { id: 'up',     label: 'เงยหน้า',        icon: '☝️', hint: 'เงยหน้าขึ้นเล็กน้อย' },
+  { id: 'down',   label: 'ก้มหน้า',        icon: '👇', hint: 'ก้มหน้าลงเล็กน้อย' },
+];
 
-function getInitials(name = '') {
-  const p = name.trim().split(' ');
-  return p.length >= 2 ? p[0][0] + p[1][0] : name.slice(0, 2);
+const CAPTURE_DELAY_MS = 1200; // ms หลังเจอหน้าก่อน capture
+
+// ============================================================
+//  Helper: capture video frame → base64 JPEG
+// ============================================================
+function captureBase64(videoEl, quality = 0.85) {
+  const canvas = document.createElement('canvas');
+  canvas.width  = videoEl.videoWidth;
+  canvas.height = videoEl.videoHeight;
+  canvas.getContext('2d').drawImage(videoEl, 0, 0);
+  return canvas.toDataURL('image/jpeg', quality).split(',')[1]; // strip "data:..."
 }
 
 // ============================================================
-//  CameraCapture — กล้องสำหรับ enroll (sub-component)
+//  Main Component
 // ============================================================
-function CameraCapture({ onCapture, captureCount }) {
-  const videoRef    = useRef(null);
-  const canvasRef   = useRef(null);
-  const streamRef   = useRef(null);
-  const mountedRef  = useRef(true);
-  const detectTimer = useRef(null);
+export default function EnrollPage({ employees = [], initialEmployee = null, onDone, onBack }) {
+  const [selectedEmp, setSelectedEmp] = useState(initialEmployee);
+  const [step,        setStep]        = useState(initialEmployee ? 'SCAN' : 'SELECT');
 
-  const [camReady, setCamReady]   = useState(false);
-  const [faceFound, setFaceFound] = useState(false);
-  const [capturing, setCapturing] = useState(false);
-  const [detectFail, setDetectFail] = useState(0); // นับครั้งที่ detect ไม่เจอ
+  // SCAN state
+  const [poseIndex,   setPoseIndex]   = useState(0);   // 0-4
+  const [captured,    setCaptured]    = useState([]);   // base64 strings
+  const [faceFound,   setFaceFound]   = useState(false);
+  const [countdown,   setCountdown]   = useState(null); // ms remaining
+  const [saving,      setSaving]      = useState(false);
+  const [saved,       setSaved]       = useState(false);
+  const [saveError,   setSaveError]   = useState(null);
 
-  // ตรวจจับหน้าต่อเนื่อง
+  const videoRef      = useRef(null);
+  const streamRef     = useRef(null);
+  const mountedRef    = useRef(true);
+  const detectTimer   = useRef(null);
+  const captureTimer  = useRef(null);
+  const countRef      = useRef(null); // interval สำหรับ countdown
+
+  // ============================================================
+  //  Camera
+  // ============================================================
+  const startCamera = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+    } catch (err) {
+      console.error('Camera error', err);
+    }
+  }, []);
+
+  const stopCamera = useCallback(() => {
+    streamRef.current?.getTracks().forEach(t => t.stop());
+    clearTimeout(detectTimer.current);
+    clearTimeout(captureTimer.current);
+    clearInterval(countRef.current);
+  }, []);
+
+  // ============================================================
+  //  Detection loop
+  // ============================================================
   const detect = useCallback(async () => {
     if (!mountedRef.current) return;
     const video = videoRef.current;
@@ -41,335 +94,271 @@ function CameraCapture({ onCapture, captureCount }) {
       return;
     }
     const result = await faceApi.detectFace(video);
-    if (mountedRef.current) {
-      setFaceFound(!!result);
-      if (!result) setDetectFail(n => n + 1);
-      else setDetectFail(0);
-      detectTimer.current = setTimeout(detect, 700);
-    }
+    if (!mountedRef.current) return;
+
+    setFaceFound(!!result);
+    detectTimer.current = setTimeout(detect, 600);
   }, []);
 
-  // เริ่มกล้อง
+  // ============================================================
+  //  เมื่อ step = SCAN → เปิดกล้อง + เริ่ม detect
+  // ============================================================
   useEffect(() => {
     mountedRef.current = true;
-    const video = videoRef.current;
-
-    const onCanPlay = () => {
-      if (!mountedRef.current) return;
-      setCamReady(true);
-      // เริ่ม detect loop หลังกล้องพร้อม
-      detectTimer.current = setTimeout(detect, 500);
-    };
-
-    video.addEventListener('canplay', onCanPlay, { once: true });
-
-    navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
-      audio: false,
-    }).then(stream => {
-      if (!mountedRef.current) { stream.getTracks().forEach(t => t.stop()); return; }
-      streamRef.current = stream;
-      video.srcObject = stream;
-      video.play().catch(() => {});
-    }).catch(() => {});
-
+    if (step === 'SCAN') {
+      startCamera().then(() => detect());
+    }
     return () => {
       mountedRef.current = false;
-      clearTimeout(detectTimer.current);
-      video.removeEventListener('canplay', onCanPlay);
-      streamRef.current?.getTracks().forEach(t => t.stop());
+      stopCamera();
     };
-  }, [detect]);
+  }, [step]);
 
-  // ถ่ายรูป + compute descriptor
-  const handleCapture = async () => {
-    if (!canCapture || !videoRef.current) return;
-    setCapturing(true);
-    try {
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-      canvas.width  = video.videoWidth;
-      canvas.height = video.videoHeight;
-      const ctx = canvas.getContext('2d');
-      ctx.save();
-      ctx.scale(-1, 1);
-      ctx.drawImage(video, -canvas.width, 0);
-      ctx.restore();
-
-      // ลอง detect จาก canvas ก่อน ถ้าไม่เจอให้ลอง detect จาก video โดยตรง
-      let detection = await faceApi.detectFace(canvas);
-      if (!detection) detection = await faceApi.detectFace(video);
-      if (!detection) {
-        alert('ตรวจจับใบหน้าไม่สำเร็จ\nลองขยับใกล้กล้องขึ้น หรือเพิ่มแสง แล้วกดใหม่');
-        return;
-      }
-
-      const thumbnail = canvas.toDataURL('image/jpeg', 0.6);
-      onCapture({ descriptor: detection.descriptor, thumbnail });
-    } finally {
-      setCapturing(false);
-    }
-  };
-
-  // admin mode: ปุ่มกดได้ทันทีที่กล้องพร้อม ไม่ต้อง detect ก่อน
-  const canCapture = camReady && !capturing;
-  const borderColor = !camReady ? 'border-slate-200' : faceFound ? 'border-[#C6F45D]' : 'border-slate-300';
-
-  return (
-    <div className="flex flex-col items-center gap-6 w-full">
-      {/* Camera view */}
-      <div className={`relative w-72 h-72 rounded-[2.5rem] overflow-hidden border-[6px] ${borderColor} bg-black shadow-md transition-colors duration-300`}>
-        <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover scale-x-[-1]" playsInline muted />
-        <canvas ref={canvasRef} className="hidden" />
-
-        {/* Loading overlay */}
-        {!camReady && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 gap-3">
-            <div className="w-10 h-10 border-4 border-white/20 border-t-white rounded-full animate-spin" />
-            <p className="text-white text-sm font-medium">เปิดกล้อง...</p>
-          </div>
-        )}
-
-        {/* กรอบมุม */}
-        <div className="absolute inset-3 pointer-events-none">
-          {['tl','tr','bl','br'].map(pos => (
-            <div key={pos} className={`absolute w-7 h-7 ${
-              pos === 'tl' ? 'top-0 left-0 border-t-4 border-l-4 rounded-tl-lg' :
-              pos === 'tr' ? 'top-0 right-0 border-t-4 border-r-4 rounded-tr-lg' :
-              pos === 'bl' ? 'bottom-0 left-0 border-b-4 border-l-4 rounded-bl-lg' :
-                             'bottom-0 right-0 border-b-4 border-r-4 rounded-br-lg'
-            } ${faceFound ? 'border-[#C6F45D]' : detectFail >= 5 ? 'border-amber-300' : 'border-slate-400'} transition-colors`} />
-          ))}
-        </div>
-
-        {/* Face status overlay */}
-        {camReady && (
-          <div className={`absolute bottom-3 left-3 right-3 py-2 rounded-full text-center text-sm font-bold transition-all ${
-            faceFound ? 'bg-[#C6F45D] text-[#222222]' : 'bg-black/50 text-white'
-          }`}>
-            {faceFound ? '✓ พบใบหน้า — พร้อมถ่าย' : 'หันหน้าตรงเข้ากล้อง'}
-          </div>
-        )}
-      </div>
-
-      {/* Capture button */}
-      <button
-        onClick={handleCapture}
-        disabled={!canCapture}
-        className={`px-12 py-5 rounded-full text-2xl font-bold transition-all touch-manipulation ${
-          canCapture
-            ? 'bg-[#7B8CFA] text-white shadow-md active:scale-95'
-            : 'bg-slate-200 text-slate-400 cursor-not-allowed'
-        }`}
-      >
-        {capturing ? 'กำลังประมวลผล...' : `ถ่ายรูป (${captureCount}/${REQUIRED_CAPTURES})`}
-      </button>
-
-      <p className="text-slate-400 text-lg">ถ่ายหลายมุม: ตรง, เงยเล็กน้อย, หันซ้าย, หันขวา, ยิ้ม</p>
-    </div>
-  );
-}
-
-// ============================================================
-//  EnrollPage main component
-// ============================================================
-export default function EnrollPage({ employees, onDone, onBack, initialEmployee = null }) {
-  const [selectedEmp, setSelectedEmp] = useState(initialEmployee);
-  const [captures, setCaptures]       = useState([]);   // [{ descriptor, thumbnail }]
-  const [saving, setSaving]           = useState(false);
-  const [saved, setSaved]             = useState(false);
-  const [saveError, setSaveError]     = useState(null);
-  const [step, setStep]               = useState(initialEmployee ? 'CAPTURE' : 'SELECT'); // SELECT | CAPTURE | DONE
-
-  const handleCapture = (data) => {
-    setCaptures(prev => {
-      const next = [...prev, data];
-      return next;
-    });
-  };
-
-  // เมื่อถ่ายครบ 5 รูป → save อัตโนมัติ
+  // ============================================================
+  //  เมื่อเจอหน้า → เริ่ม countdown แล้ว auto-capture
+  // ============================================================
   useEffect(() => {
-    if (captures.length === REQUIRED_CAPTURES && step === 'CAPTURE') {
-      handleSave(captures);
-    }
-  }, [captures, step]);
+    if (step !== 'SCAN' || saving || saved) return;
 
-  const handleSave = async (captureList) => {
-    if (!selectedEmp) return;
+    if (faceFound) {
+      // เริ่ม countdown
+      let remaining = CAPTURE_DELAY_MS;
+      setCountdown(remaining);
+      countRef.current = setInterval(() => {
+        remaining -= 100;
+        if (remaining <= 0) {
+          clearInterval(countRef.current);
+          setCountdown(null);
+        } else {
+          setCountdown(remaining);
+        }
+      }, 100);
+
+      captureTimer.current = setTimeout(async () => {
+        if (!mountedRef.current || !videoRef.current) return;
+        const b64 = captureBase64(videoRef.current);
+        const next = [...captured, b64];
+        setCaptured(next);
+        setFaceFound(false);
+
+        if (next.length >= POSES.length) {
+          // ครบทุกท่า → บันทึก
+          await handleSave(next);
+        } else {
+          setPoseIndex(next.length);
+        }
+      }, CAPTURE_DELAY_MS);
+    } else {
+      // ไม่เจอหน้า → ยกเลิก countdown
+      clearTimeout(captureTimer.current);
+      clearInterval(countRef.current);
+      setCountdown(null);
+    }
+
+    return () => {
+      clearTimeout(captureTimer.current);
+      clearInterval(countRef.current);
+    };
+  }, [faceFound, step]);
+
+  // ============================================================
+  //  Save
+  // ============================================================
+  const handleSave = async (images) => {
     setSaving(true);
     setSaveError(null);
     try {
-      const descriptors = captureList.map(c => c.descriptor);
-      const json = faceApi.serializeDescriptors(descriptors);
-      await api.enrollFace(selectedEmp.employeeId, json);
+      await api.enrollFace(selectedEmp.employeeId, images);
       setSaved(true);
-      setStep('DONE');
+      stopCamera();
+      setTimeout(() => { onDone(); }, 2000);
     } catch (err) {
       setSaveError('บันทึกไม่สำเร็จ กรุณาลองใหม่');
       console.error(err);
-    } finally {
+      // reset scan
+      setCaptured([]);
+      setPoseIndex(0);
       setSaving(false);
     }
   };
 
-  const handleReset = () => {
-    setSelectedEmp(null);
-    setCaptures([]);
-    setSaved(false);
+  const handleRetry = () => {
     setSaveError(null);
-    setStep('SELECT');
+    setCaptured([]);
+    setPoseIndex(0);
+    setFaceFound(false);
+    setCountdown(null);
+    setSaving(false);
+    setSaved(false);
+    detect();
   };
 
   // ============================================================
-  //  STEP: SELECT — เลือกพนักงาน
+  //  SELECT step
   // ============================================================
   if (step === 'SELECT') {
     return (
-      <div className="flex flex-col h-full w-full px-8 pt-6 pb-10 animate-fade-in">
-        <div className="flex justify-between items-center mb-8 w-full max-w-5xl mx-auto">
-          <div>
-            <h1 className="text-4xl font-bold text-[#222222]">ลงทะเบียนใบหน้า</h1>
-            <p className="text-slate-400 text-xl mt-1">เลือกพนักงานที่ต้องการลงทะเบียน</p>
-          </div>
-          <button
-            onClick={onBack}
-            className="bg-[#F2F2F2] text-[#222222] px-6 py-3 rounded-full text-lg font-medium active:scale-95 transition-transform cursor-pointer touch-manipulation"
-          >
-            ← กลับ
+      <div className="flex flex-col w-full self-stretch px-6 pt-4 pb-6 animate-fade-in">
+        <div className="bg-white rounded-3xl shadow-sm mb-4 border border-slate-100 px-5 py-4 flex items-center gap-3">
+          <button onClick={onBack} className="bg-[#F2F2F2] p-2 rounded-full cursor-pointer">
+            <svg className="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" />
+            </svg>
           </button>
+          <h1 className="text-xl font-bold text-[#222222]">เลือกพนักงานที่จะลงทะเบียน</h1>
         </div>
-
-        <div className="grid grid-cols-4 gap-5 w-full max-w-5xl mx-auto overflow-y-auto pb-4">
-          {employees.map(emp => {
-            const hasDescriptor = !!emp.faceDescriptorJson;
-            return (
-              <button
-                key={emp.employeeId}
-                onClick={() => { setSelectedEmp(emp); setStep('CAPTURE'); }}
-                className="bg-white p-6 rounded-[2rem] flex flex-col items-center gap-4 active:scale-95 transition-transform cursor-pointer shadow-sm border-2 border-transparent hover:border-[#7B8CFA] touch-manipulation relative"
-              >
-                {/* badge ถ้า enrolled แล้ว */}
-                {hasDescriptor && (
-                  <div className="absolute top-3 right-3 bg-[#C6F45D] text-[#222222] text-xs font-bold px-2 py-0.5 rounded-full">
-                    ✓ enrolled
+        <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden flex-1">
+          {employees.length === 0 ? (
+            <div className="flex items-center justify-center h-48 text-slate-400">ยังไม่มีพนักงาน</div>
+          ) : (
+            <div className="divide-y divide-slate-50">
+              {employees.map(emp => (
+                <button key={emp.employeeId}
+                  onClick={() => { setSelectedEmp(emp); setStep('SCAN'); }}
+                  className="w-full flex items-center gap-4 px-5 py-4 hover:bg-slate-50 transition-colors cursor-pointer text-left">
+                  <div className="w-10 h-10 rounded-full bg-[#7B8CFA]/10 flex items-center justify-center text-[#7B8CFA] font-bold text-sm">
+                    {emp.name.slice(0, 2)}
                   </div>
-                )}
-                <div className="text-2xl font-bold text-slate-500 bg-[#F2F2F2] w-20 h-20 rounded-full flex items-center justify-center">
-                  {getInitials(emp.name)}
-                </div>
-                <span className="text-xl font-bold text-[#222222] text-center leading-tight">{emp.name}</span>
-                <span className="text-sm text-slate-400">{emp.department}</span>
-              </button>
-            );
-          })}
+                  <div>
+                    <p className="font-semibold text-[#222222]">{emp.name}</p>
+                    <p className="text-sm text-slate-400">{emp.employeeId} · {emp.department || '-'}</p>
+                  </div>
+                  {emp.faceDescriptorJson && (
+                    <span className="ml-auto text-xs bg-green-100 text-green-600 px-2.5 py-1 rounded-full font-medium">ลงทะเบียนแล้ว</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     );
   }
 
   // ============================================================
-  //  STEP: CAPTURE — ถ่ายรูป
+  //  SCAN step
   // ============================================================
-  if (step === 'CAPTURE') {
-    return (
-      <div className="flex flex-col h-full w-full items-center px-8 pt-6 pb-10 animate-fade-in">
-        {/* Header */}
-        <div className="flex justify-between items-center mb-8 w-full max-w-3xl">
-          <div>
-            <h1 className="text-3xl font-bold text-[#222222]">
-              ลงทะเบียน: {selectedEmp?.name}
-            </h1>
-            <p className="text-slate-400 text-lg mt-1">{selectedEmp?.department}</p>
-          </div>
-          <button
-            onClick={handleReset}
-            className="bg-[#F2F2F2] text-[#222222] px-6 py-3 rounded-full text-lg font-medium active:scale-95 transition-transform cursor-pointer touch-manipulation"
-          >
-            ← เปลี่ยนคน
-          </button>
-        </div>
+  const currentPose = POSES[poseIndex];
+  const progress    = (captured.length / POSES.length) * 100;
 
-        {/* Camera */}
-        {!saving && !saved && (
-          <CameraCapture
-            onCapture={handleCapture}
-            captureCount={captures.length}
-          />
-        )}
-
-        {/* Saving state */}
-        {saving && (
-          <div className="flex flex-col items-center gap-6 mt-10">
-            <div className="w-20 h-20 border-[6px] border-[#F2F2F2] border-t-[#7B8CFA] rounded-full animate-spin" />
-            <p className="text-2xl font-bold text-[#222222]">กำลังบันทึก...</p>
-          </div>
-        )}
-
-        {saveError && (
-          <div className="mt-6 bg-red-50 border border-red-200 text-red-600 px-6 py-4 rounded-2xl text-center">
-            <p className="text-xl font-bold mb-3">{saveError}</p>
-            <button
-              onClick={() => handleSave(captures)}
-              className="bg-red-500 text-white px-8 py-3 rounded-full font-bold cursor-pointer touch-manipulation"
-            >
-              ลองใหม่
-            </button>
-          </div>
-        )}
-
-        {/* Thumbnails */}
-        {captures.length > 0 && !saving && (
-          <div className="flex gap-3 mt-6 flex-wrap justify-center">
-            {captures.map((c, i) => (
-              <div key={i} className="relative">
-                <img
-                  src={c.thumbnail}
-                  alt={`capture ${i+1}`}
-                  className="w-16 h-16 rounded-2xl object-cover border-2 border-[#C6F45D]"
-                />
-                <div className="absolute -top-1 -right-1 bg-[#C6F45D] text-[#222222] text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center">
-                  {i+1}
-                </div>
-              </div>
-            ))}
-            {Array.from({ length: REQUIRED_CAPTURES - captures.length }).map((_, i) => (
-              <div key={`empty-${i}`} className="w-16 h-16 rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50" />
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  // ============================================================
-  //  STEP: DONE — สำเร็จ
-  // ============================================================
   return (
-    <div className="flex flex-col h-full w-full items-center justify-center px-8 animate-pop-in">
-      <div className="bg-[#C6F45D] p-12 rounded-[3rem] shadow-lg w-full max-w-xl text-center">
-        <div className="bg-[#222222] text-white w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-8 shadow-xl">
-          <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
-          </svg>
-        </div>
-        <h1 className="text-4xl font-bold text-[#222222] mb-4">ลงทะเบียนสำเร็จ!</h1>
-        <p className="text-2xl text-[#222222]/70 mb-10">{selectedEmp?.name}</p>
-        <div className="flex flex-col gap-4">
-          <button
-            onClick={() => { handleReset(); }}
-            className="w-full bg-[#222222] text-white py-5 rounded-full text-2xl font-bold active:scale-95 transition-transform cursor-pointer touch-manipulation"
-          >
-            ลงทะเบียนคนถัดไป
+    <div className="flex flex-col w-full self-stretch px-4 pt-4 pb-6 items-center animate-fade-in">
+      {/* Header */}
+      <div className="bg-white rounded-3xl shadow-sm mb-4 w-full border border-slate-100 px-5 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <button onClick={() => { stopCamera(); onBack(); }} className="bg-[#F2F2F2] p-2 rounded-full cursor-pointer">
+            <svg className="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" />
+            </svg>
           </button>
-          <button
-            onClick={() => { onDone?.(); onBack?.(); }}
-            className="w-full bg-white/60 text-[#222222] py-4 rounded-full text-xl font-medium active:scale-95 transition-transform cursor-pointer touch-manipulation"
-          >
-            กลับหน้า Admin
-          </button>
+          <div>
+            <p className="font-bold text-[#222222]">ลงทะเบียน: {selectedEmp?.name}</p>
+            <p className="text-sm text-slate-400">{selectedEmp?.department}</p>
+          </div>
         </div>
+        {!initialEmployee && (
+          <button onClick={() => { stopCamera(); setStep('SELECT'); setCaptured([]); setPoseIndex(0); }}
+            className="text-slate-400 text-sm cursor-pointer">← เปลี่ยนคน</button>
+        )}
       </div>
+
+      {/* Progress bar */}
+      <div className="w-full bg-slate-100 rounded-full h-2 mb-4 max-w-md">
+        <div className="bg-[#7B8CFA] h-2 rounded-full transition-all duration-500" style={{ width: `${progress}%` }} />
+      </div>
+
+      {/* Pose steps */}
+      <div className="flex gap-2 mb-4 justify-center">
+        {POSES.map((p, i) => (
+          <div key={p.id}
+            className={`flex flex-col items-center gap-1 px-2 py-1.5 rounded-xl transition-all text-center
+              ${i < captured.length ? 'bg-green-100 text-green-600'
+                : i === poseIndex && !saving && !saved ? 'bg-[#7B8CFA] text-white scale-105'
+                : 'bg-slate-100 text-slate-400'}`}>
+            <span className="text-lg">{p.icon}</span>
+            <span className="text-xs font-medium whitespace-nowrap">{p.label}</span>
+            {i < captured.length && <span className="text-xs font-bold">✓</span>}
+          </div>
+        ))}
+      </div>
+
+      {/* Camera */}
+      <div className="relative rounded-3xl overflow-hidden shadow-lg bg-black mb-4"
+        style={{ width: '100%', maxWidth: 420, aspectRatio: '4/3' }}>
+        <video ref={videoRef} muted playsInline className="w-full h-full object-cover scale-x-[-1]" />
+
+        {/* Face indicator */}
+        {!saving && !saved && (
+          <div className={`absolute inset-0 flex items-center justify-center pointer-events-none`}>
+            <div className={`w-48 h-56 rounded-full border-4 transition-colors duration-300
+              ${faceFound && countdown !== null ? 'border-[#C6F45D] shadow-[0_0_20px_#C6F45D80]' : faceFound ? 'border-[#C6F45D]' : 'border-white/30'}`} />
+          </div>
+        )}
+
+        {/* Countdown overlay */}
+        {countdown !== null && !saving && !saved && (
+          <div className="absolute bottom-4 left-0 right-0 flex justify-center">
+            <div className="bg-black/60 text-white text-sm font-bold px-4 py-1.5 rounded-full">
+              กำลังจับภาพ...
+            </div>
+          </div>
+        )}
+
+        {/* Saving overlay */}
+        {saving && (
+          <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+            <div className="text-white text-center">
+              <div className="w-10 h-10 border-4 border-white/30 border-t-white rounded-full animate-spin mx-auto mb-3" />
+              <p className="font-bold">กำลังบันทึก...</p>
+            </div>
+          </div>
+        )}
+
+        {/* Done overlay */}
+        {saved && (
+          <div className="absolute inset-0 bg-green-500/80 flex items-center justify-center">
+            <div className="text-white text-center">
+              <div className="text-5xl mb-2">✓</div>
+              <p className="font-bold text-xl">ลงทะเบียนสำเร็จ!</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Instruction */}
+      {!saving && !saved && !saveError && (
+        <div className={`text-center px-4 py-3 rounded-2xl w-full max-w-md
+          ${faceFound ? 'bg-green-50 text-green-700' : 'bg-slate-50 text-slate-500'}`}>
+          <p className="text-2xl mb-1">{currentPose.icon}</p>
+          <p className="font-bold text-lg">{currentPose.label}</p>
+          <p className="text-sm">{currentPose.hint}</p>
+          {!faceFound && <p className="text-sm mt-1 opacity-70">รอตรวจจับใบหน้า...</p>}
+          {faceFound && <p className="text-sm mt-1 font-medium">เจอหน้าแล้ว! นิ่งๆ สักครู่...</p>}
+        </div>
+      )}
+
+      {/* Error */}
+      {saveError && (
+        <div className="bg-red-50 border border-red-100 rounded-2xl px-5 py-4 w-full max-w-md text-center">
+          <p className="text-red-600 font-bold mb-3">{saveError}</p>
+          <button onClick={handleRetry}
+            className="bg-red-500 text-white px-6 py-2.5 rounded-full font-bold cursor-pointer">
+            ลองใหม่
+          </button>
+        </div>
+      )}
+
+      {/* Captured thumbnails */}
+      {captured.length > 0 && !saved && (
+        <div className="flex gap-2 mt-4 justify-center">
+          {captured.map((_, i) => (
+            <div key={i}
+              className="w-10 h-10 rounded-full bg-green-100 border-2 border-green-400 flex items-center justify-center text-green-600 text-xs font-bold">
+              {POSES[i].icon}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

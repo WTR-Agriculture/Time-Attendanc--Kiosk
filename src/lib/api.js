@@ -34,6 +34,15 @@ export async function getEmployees() {
 }
 
 // ============================================================
+//  recognize — ส่งรูปไป server ให้ InsightFace จับคู่
+//  imageBase64: JPEG base64 string
+//  return: { matched, employee, confidence } หรือ { matched: false }
+// ============================================================
+export async function recognize(imageBase64) {
+  return apiPost('/api/recognize', { imageBase64 });
+}
+
+// ============================================================
 //  getStatus — สถานะลงเวลาวันนี้ของพนักงานคนนั้น
 //  return: { lastAction, nextAllowed: [...], todayLogs: [...] }
 // ============================================================
@@ -59,8 +68,9 @@ export async function logAttendance({ employeeId, employeeName, actionType, conf
 //  enrollFace — บันทึก face descriptor สำหรับพนักงาน
 //  return: { success, message }
 // ============================================================
-export async function enrollFace(employeeId, faceDescriptorJson) {
-  return apiPost('/api/enroll', { employeeId, faceDescriptorJson });
+// images = array of base64 JPEG strings (1 per pose)
+export async function enrollFace(employeeId, images) {
+  return apiPost('/api/enroll', { employeeId, images });
 }
 
 // ============================================================

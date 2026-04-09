@@ -78,7 +78,7 @@ class LogAttendanceBody(BaseModel):
 
 class EnrollFaceBody(BaseModel):
     employeeId: str
-    imageBase64: str  # JPEG base64
+    images: list[str]  # list of JPEG base64 (1 per pose)
 
 class RecognizeFaceBody(BaseModel):
     imageBase64: str  # JPEG base64 จาก iPad
@@ -212,24 +212,34 @@ def recognize_face(body: RecognizeFaceBody):
 # ============================================================
 @app.post("/api/enroll")
 def enroll_face(body: EnrollFaceBody):
-    img_bytes = base64.b64decode(body.imageBase64)
-    img_array = np.frombuffer(img_bytes, dtype=np.uint8)
-    img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+    if not body.images:
+        raise HTTPException(status_code=400, detail="ไม่มีรูปภาพ")
 
-    if img is None:
-        raise HTTPException(status_code=400, detail="Invalid image")
+    embeddings = []
+    for img_b64 in body.images:
+        try:
+            img_bytes = base64.b64decode(img_b64)
+            img_array = np.frombuffer(img_bytes, dtype=np.uint8)
+            img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+            if img is None:
+                continue
+            faces = face_app.get(img)
+            if faces:
+                embeddings.append(faces[0].embedding)
+        except Exception:
+            continue
 
-    faces = face_app.get(img)
-    if not faces:
-        raise HTTPException(status_code=400, detail="ไม่พบใบหน้าในรูป")
+    if not embeddings:
+        raise HTTPException(status_code=400, detail="ไม่พบใบหน้าในรูปที่ส่งมา")
 
-    embedding = faces[0].embedding.tolist()
-    descriptor_json = json.dumps(embedding)
+    # Average embedding จากทุก pose
+    avg_embedding = np.mean(embeddings, axis=0).tolist()
+    descriptor_json = json.dumps(avg_embedding)
 
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute("""
-        UPDATE Employees SET FaceDescriptorJson = ?, UpdatedAt = GETDATE()
+        UPDATE Employees SET FaceDescriptorJson = ?
         WHERE EmployeeId = ?
     """, descriptor_json, body.employeeId)
 
@@ -239,7 +249,7 @@ def enroll_face(body: EnrollFaceBody):
 
     conn.commit()
     conn.close()
-    return {"success": True, "message": "บันทึก face descriptor สำเร็จ"}
+    return {"success": True, "message": f"บันทึกใบหน้าจาก {len(embeddings)} ท่า สำเร็จ"}
 
 # ============================================================
 #  POST /api/attendance — บันทึกเวลาเข้าออก
@@ -589,7 +599,7 @@ def get_employee_logs(employee_id: str, limit: int = 60):
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT TOP (?) EmployeeId, Name, ActionType, DateStr, TimeStr
+        SELECT TOP (?) EmployeeId, EmployeeName, ActionType, DateStr, TimeStr
         FROM AttendanceLogs
         WHERE EmployeeId = ?
         ORDER BY DateStr DESC, TimeStr DESC

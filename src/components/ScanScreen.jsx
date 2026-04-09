@@ -11,6 +11,15 @@
 // ============================================================
 import { useEffect, useRef, useState, useCallback } from 'react';
 import * as faceApi from '../lib/faceApi';
+import * as api     from '../lib/api';
+
+function captureBase64(videoEl, quality = 0.85) {
+  const canvas = document.createElement('canvas');
+  canvas.width  = videoEl.videoWidth;
+  canvas.height = videoEl.videoHeight;
+  canvas.getContext('2d').drawImage(videoEl, 0, 0);
+  return canvas.toDataURL('image/jpeg', quality).split(',')[1];
+}
 
 // scan interval ms (shorter = more responsive, heavier)
 const SCAN_MS        = 650;
@@ -136,34 +145,41 @@ export default function ScanScreen({ employees, onMatch, onNoFace, onError }) {
       }
     }
 
-    // ---- blink confirmed → run match ----
+    // ---- blink confirmed → capture + ส่ง server ----
     setS('blink_done');
 
-    const hasDescriptors = employees.some(e => e.faceDescriptorJson);
-    if (!hasDescriptors) {
-      setS('no_desc');
-      timerRef.current = setTimeout(loop, SCAN_MS * 2);
-      return;
-    }
+    try {
+      const imageBase64 = captureBase64(videoRef.current);
+      const result = await api.recognize(imageBase64);
 
-    const result = faceApi.matchDescriptor(detection.descriptor, employees);
+      if (!mountedRef.current) return;
 
-    if (result.level === 'low') {
+      if (!result.matched) {
+        setS('no_match');
+        blinkRef.current = { closedFrames: 0, blinkDone: false };
+        timerRef.current = setTimeout(() => {
+          if (mountedRef.current) { setS('scanning'); loop(); }
+        }, 2000);
+        return;
+      }
+
+      // match found — แปลง format ให้ตรงกับที่ App.jsx ใช้
+      stopCamera();
+      onMatch?.({
+        employee:   result.employee,
+        confidence: result.confidence / 100,
+        level:      result.confidence >= 70 ? 'high' : result.confidence >= 40 ? 'medium' : 'low',
+        distance:   0,
+      });
+    } catch {
+      if (!mountedRef.current) return;
       setS('no_match');
       blinkRef.current = { closedFrames: 0, blinkDone: false };
       timerRef.current = setTimeout(() => {
-        if (mountedRef.current) {
-          setS('scanning');
-          loop();
-        }
+        if (mountedRef.current) { setS('scanning'); loop(); }
       }, 2000);
-      return;
     }
-
-    // ---- match found ----
-    stopCamera();
-    onMatch?.(result);
-  }, [employees, onMatch, onNoFace, setS, stopCamera]);
+  }, [onMatch, onNoFace, setS, stopCamera]);
 
   // ============================================================
   //  startCamera
