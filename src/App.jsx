@@ -1341,12 +1341,22 @@ export default function App() {
             <div className="flex flex-col gap-3">
               <div>
                 <label className="text-sm font-medium text-slate-500 mb-1 block">รหัสพนักงาน *</label>
-                <input
-                  value={newEmpId}
-                  onChange={e => setNewEmpId(e.target.value)}
-                  placeholder="เช่น 001"
-                  className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-base outline-none focus:border-[#7B8CFA]"
-                />
+                <div className="flex gap-2">
+                  <input
+                    value={newEmpId}
+                    onChange={e => setNewEmpId(e.target.value)}
+                    placeholder="เช่น 1001"
+                    className="flex-1 border border-slate-200 rounded-xl px-4 py-2.5 text-base outline-none focus:border-[#7B8CFA]"
+                  />
+                  <button
+                    onClick={async () => {
+                      try { const r = await api.getNextEmployeeId(); setNewEmpId(r.nextId); } catch {}
+                    }}
+                    className="bg-[#F2F2F2] text-slate-600 px-3 py-2 rounded-xl text-sm font-medium cursor-pointer whitespace-nowrap"
+                  >
+                    Auto
+                  </button>
+                </div>
               </div>
               <div>
                 <label className="text-sm font-medium text-slate-500 mb-1 block">ชื่อ-นามสกุล *</label>
@@ -1359,12 +1369,15 @@ export default function App() {
               </div>
               <div>
                 <label className="text-sm font-medium text-slate-500 mb-1 block">แผนก</label>
-                <input
+                <select
                   value={newEmpDept}
                   onChange={e => setNewEmpDept(e.target.value)}
-                  placeholder="เช่น ขาย"
-                  className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-base outline-none focus:border-[#7B8CFA]"
-                />
+                  className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-base outline-none focus:border-[#7B8CFA] bg-white"
+                >
+                  <option value="">-- เลือกแผนก --</option>
+                  <option value="Office">Office</option>
+                  <option value="Production">Production</option>
+                </select>
               </div>
               <div className="flex gap-3">
                 <div className="flex-1">

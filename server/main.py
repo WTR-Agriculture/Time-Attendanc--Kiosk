@@ -100,6 +100,19 @@ class CreateEmployeeBody(BaseModel):
 # ============================================================
 #  GET /api/employees
 # ============================================================
+@app.get("/api/employees/next-id")
+def get_next_employee_id():
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT MAX(CAST(EmployeeId AS INT)) FROM Employees
+        WHERE EmployeeId NOT LIKE '%[^0-9]%'
+    """)
+    row = cursor.fetchone()
+    conn.close()
+    max_id = row[0] if row[0] else 1000
+    return {"nextId": str(max_id + 1)}
+
 @app.get("/api/employees")
 def get_employees():
     conn = get_db()

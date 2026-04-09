@@ -100,6 +100,14 @@ export async function getOT(params = {}) {
 }
 
 // ============================================================
+//  getNextEmployeeId — ดึงรหัสพนักงานถัดไป (auto increment)
+//  return: { nextId: '1001' }
+// ============================================================
+export async function getNextEmployeeId() {
+  return apiGet('/api/employees/next-id');
+}
+
+// ============================================================
 //  createEmployee — เพิ่มพนักงานใหม่
 //  params: { employeeId, name, department, rate, rateType }
 //  return: { success, message }
