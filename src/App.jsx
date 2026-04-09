@@ -855,7 +855,7 @@ export default function App() {
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setShowAddEmp(true)}
+              onClick={async () => { setShowAddEmp(true); try { const r = await api.getNextEmployeeId(); setNewEmpId(r.nextId); } catch {} }}
               className="bg-[#C6F45D] text-[#222222] px-4 py-2 rounded-full text-base font-medium active:scale-95 transition-transform cursor-pointer touch-manipulation flex items-center gap-1.5"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1341,22 +1341,11 @@ export default function App() {
             <div className="flex flex-col gap-3">
               <div>
                 <label className="text-sm font-medium text-slate-500 mb-1 block">รหัสพนักงาน *</label>
-                <div className="flex gap-2">
-                  <input
-                    value={newEmpId}
-                    onChange={e => setNewEmpId(e.target.value)}
-                    placeholder="เช่น 1001"
-                    className="flex-1 border border-slate-200 rounded-xl px-4 py-2.5 text-base outline-none focus:border-[#7B8CFA]"
-                  />
-                  <button
-                    onClick={async () => {
-                      try { const r = await api.getNextEmployeeId(); setNewEmpId(r.nextId); } catch {}
-                    }}
-                    className="bg-[#F2F2F2] text-slate-600 px-3 py-2 rounded-xl text-sm font-medium cursor-pointer whitespace-nowrap"
-                  >
-                    Auto
-                  </button>
-                </div>
+                <input
+                  value={newEmpId || 'กำลังโหลด...'}
+                  readOnly
+                  className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-base bg-[#F8FAFC] text-slate-500 cursor-default"
+                />
               </div>
               <div>
                 <label className="text-sm font-medium text-slate-500 mb-1 block">ชื่อ-นามสกุล *</label>
