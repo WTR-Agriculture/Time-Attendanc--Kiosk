@@ -1,30 +1,27 @@
 // ============================================================
-//  GAS API Service
-//  ใช้ text/plain สำหรับ POST เพื่อหลีกเลี่ยง CORS pre-flight
-//  GAS อ่าน e.postData.contents ได้ปกติไม่ว่า content-type จะเป็นอะไร
+//  FastAPI Backend Service
+//  Base URL: VITE_API_URL (e.g. https://api.wtr-attendance.online)
 // ============================================================
 
-const GAS_URL = import.meta.env.VITE_GAS_URL;
+const API_URL = import.meta.env.VITE_API_URL;
 
 // --- core fetchers ---
 
-async function gasGet(params) {
-  const url = new URL(GAS_URL);
+async function apiGet(path, params = {}) {
+  const url = new URL(API_URL + path);
   Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, String(v)));
-  const res = await fetch(url.toString(), { redirect: 'follow' });
-  if (!res.ok) throw new Error(`GAS GET error: ${res.status}`);
+  const res = await fetch(url.toString());
+  if (!res.ok) throw new Error(`API GET error: ${res.status}`);
   return res.json();
 }
 
-async function gasPost(body) {
-  // Content-Type: text/plain หลีกเลี่ยง OPTIONS pre-flight request
-  const res = await fetch(GAS_URL, {
-    method:   'POST',
-    headers:  { 'Content-Type': 'text/plain;charset=UTF-8' },
-    body:     JSON.stringify(body),
-    redirect: 'follow',
+async function apiPost(path, body) {
+  const res = await fetch(API_URL + path, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`GAS POST error: ${res.status}`);
+  if (!res.ok) throw new Error(`API POST error: ${res.status}`);
   return res.json();
 }
 
@@ -33,7 +30,7 @@ async function gasPost(body) {
 //  return: { employees: [...] }
 // ============================================================
 export async function getEmployees() {
-  return gasGet({ action: 'getEmployees' });
+  return apiGet('/api/employees');
 }
 
 // ============================================================
@@ -41,7 +38,7 @@ export async function getEmployees() {
 //  return: { lastAction, nextAllowed: [...], todayLogs: [...] }
 // ============================================================
 export async function getStatus(empId) {
-  return gasGet({ action: 'getStatus', empId });
+  return apiGet('/api/status', { empId });
 }
 
 // ============================================================
@@ -49,8 +46,7 @@ export async function getStatus(empId) {
 //  return: { success, id, timestamp, message }
 // ============================================================
 export async function logAttendance({ employeeId, employeeName, actionType, confidenceScore, deviceId }) {
-  return gasPost({
-    action: 'logAttendance',
+  return apiPost('/api/attendance', {
     employeeId,
     employeeName,
     actionType,
@@ -64,16 +60,16 @@ export async function logAttendance({ employeeId, employeeName, actionType, conf
 //  return: { success, message }
 // ============================================================
 export async function enrollFace(employeeId, faceDescriptorJson) {
-  return gasPost({ action: 'enrollFace', employeeId, faceDescriptorJson });
+  return apiPost('/api/enroll', { employeeId, faceDescriptorJson });
 }
 
 // ============================================================
 //  getLogs — ดึง attendance log
 //  params: { week: 'YYYY-WW' } หรือ { date: 'YYYY-MM-DD' }
-//  return: { logs: [...], raw: [...] }
+//  return: { logs: [...] }
 // ============================================================
 export async function getLogs(params = {}) {
-  return gasGet({ action: 'getLogs', ...params });
+  return apiGet('/api/logs', params);
 }
 
 // ============================================================
@@ -82,16 +78,16 @@ export async function getLogs(params = {}) {
 //  return: { week, payroll: [...], grandTotal }
 // ============================================================
 export async function getPayroll(params = {}) {
-  return gasGet({ action: 'getPayroll', ...params });
+  return apiGet('/api/payroll', params);
 }
 
 // ============================================================
 //  logOT — บันทึก OT
-//  params: { employeeId, employeeName, date: 'YYYY-MM-DD', hours }
+//  params: { employeeId, employeeName, date: 'YYYY-MM-DD', hours, note }
 //  return: { success, message }
 // ============================================================
 export async function logOT({ employeeId, employeeName, date, hours, note }) {
-  return gasPost({ action: 'logOT', employeeId, employeeName, date, hours, note: note || '' });
+  return apiPost('/api/ot', { employeeId, employeeName, date, hours, note: note || '' });
 }
 
 // ============================================================
@@ -100,7 +96,7 @@ export async function logOT({ employeeId, employeeName, date, hours, note }) {
 //  return: { otLogs: [...] }
 // ============================================================
 export async function getOT(params = {}) {
-  return gasGet({ action: 'getOT', ...params });
+  return apiGet('/api/ot', params);
 }
 
 // ============================================================
