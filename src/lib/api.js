@@ -129,6 +129,20 @@ export async function deleteEmployee(employeeId) {
 }
 
 // ============================================================
+//  getEmployeeLogs — ประวัติการมาทำงานรายคน
+// ============================================================
+export async function getEmployeeLogs(employeeId, limit = 60) {
+  return apiGet(`/api/employees/${encodeURIComponent(employeeId)}/logs`, { limit });
+}
+
+// ============================================================
+//  getEmployeePayroll — ประวัติงวดค่าแรงรายคน
+// ============================================================
+export async function getEmployeePayroll(employeeId) {
+  return apiGet(`/api/employees/${encodeURIComponent(employeeId)}/payroll`);
+}
+
+// ============================================================
 //  updateEmployee — แก้ไขข้อมูลพนักงาน
 // ============================================================
 export async function updateEmployee(employeeId, { name, department, rate, rateType }) {

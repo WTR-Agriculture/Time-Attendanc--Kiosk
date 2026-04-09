@@ -582,6 +582,57 @@ def delete_employee(employee_id: str):
     return {"success": True, "message": "ปิดใช้งานพนักงานแล้ว"}
 
 # ============================================================
+#  GET /api/employees/{id}/logs — ประวัติการมาทำงานรายคน
+# ============================================================
+@app.get("/api/employees/{employee_id}/logs")
+def get_employee_logs(employee_id: str, limit: int = 60):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT TOP (?) EmployeeId, Name, ActionType, DateStr, TimeStr
+        FROM AttendanceLogs
+        WHERE EmployeeId = ?
+        ORDER BY DateStr DESC, TimeStr DESC
+    """, limit, employee_id)
+    rows = cursor.fetchall()
+    conn.close()
+    daily = group_logs_to_daily(rows)
+    return {"logs": list(daily.values())}
+
+# ============================================================
+#  GET /api/employees/{id}/payroll — ประวัติงวดค่าแรงรายคน
+# ============================================================
+@app.get("/api/employees/{employee_id}/payroll")
+def get_employee_payroll(employee_id: str):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT pp.Id, pp.StartDate, pp.EndDate, pp.Status, pp.PaidAt,
+               pi.WorkDays, pi.BaseAmount, pi.LateDeduction, pi.OTHours, pi.OTAmount, pi.NetTotal
+        FROM PayrollPeriodItems pi
+        JOIN PayrollPeriods pp ON pi.PeriodId = pp.Id
+        WHERE pi.EmployeeId = ?
+        ORDER BY pp.Id DESC
+    """, employee_id)
+    rows = cursor.fetchall()
+    conn.close()
+    return {"history": [
+        {
+            "periodId":      r[0],
+            "startDate":     str(r[1]),
+            "endDate":       str(r[2]),
+            "status":        r[3],
+            "paidAt":        str(r[4]) if r[4] else None,
+            "workDays":      r[5],
+            "baseAmount":    float(r[6]),
+            "lateDeduction": float(r[7]),
+            "otHours":       float(r[8]),
+            "otAmount":      float(r[9]),
+            "netTotal":      float(r[10]),
+        } for r in rows
+    ]}
+
+# ============================================================
 #  POST /api/payroll/periods — สร้างงวดการจ่าย (snapshot)
 # ============================================================
 @app.post("/api/payroll/periods")
