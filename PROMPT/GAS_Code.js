@@ -387,7 +387,8 @@ function handleLogOT(body) {
     body.employeeName || '',   // B: name
     body.date,                 // C: date (YYYY-MM-DD)
     hours,                     // D: hours
-    now,                       // E: createdAt
+    body.note || '',           // E: note
+    now,                       // F: createdAt
   ]);
 
   writeAuditLog('LOG_OT', `${body.employeeName} OT ${hours}ชม. วันที่ ${body.date}`, '');
@@ -569,7 +570,7 @@ function initSheetHeaders(sheet, name) {
       'eventType', 'detail', 'payload', 'createdAt',
     ],
     [SHEET_OT_LOGS]: [
-      'employeeId', 'name', 'date', 'hours', 'createdAt',
+      'employeeId', 'name', 'date', 'hours', 'note', 'createdAt',
     ],
   };
 

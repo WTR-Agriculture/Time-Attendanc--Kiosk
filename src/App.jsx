@@ -170,6 +170,7 @@ export default function App() {
   const [otEmpId,     setOtEmpId]     = useState('');
   const [otDate,      setOtDate]      = useState('');
   const [otHours,     setOtHours]     = useState('');
+  const [otNote,      setOtNote]      = useState('');
   const [otSaving,    setOtSaving]    = useState(false);
   const [otSuccess,   setOtSuccess]   = useState(null);
   const [otError,     setOtError]     = useState(null);
@@ -331,9 +332,11 @@ export default function App() {
         employeeName: emp?.name || otEmpId,
         date:         otDate,
         hours:        parseFloat(otHours),
+        note:         otNote.trim(),
       });
       setOtSuccess(`บันทึก OT ${otHours} ชม. ให้ ${emp?.name || otEmpId} วันที่ ${otDate} สำเร็จ`);
       setOtHours('');
+      setOtNote('');
     } catch (err) {
       setOtError('บันทึก OT ไม่สำเร็จ กรุณาลองใหม่');
       console.error(err);
@@ -1139,6 +1142,18 @@ export default function App() {
             placeholder="เช่น 2 หรือ 2.5"
             value={otHours}
             onChange={e => { setOtHours(e.target.value); setOtSuccess(null); setOtError(null); }}
+            className="w-full bg-white border border-slate-200 rounded-2xl px-5 py-3.5 text-lg text-[#222222] focus:outline-none focus:ring-2 focus:ring-[#7B8CFA]"
+          />
+        </div>
+
+        {/* Note */}
+        <div className="flex flex-col gap-2">
+          <label className="text-base font-bold text-slate-600">รายละเอียด <span className="font-normal text-slate-400">(ไม่บังคับ)</span></label>
+          <input
+            type="text"
+            placeholder="เช่น งานด่วน, ส่งสินค้า, ปิดบัญชี"
+            value={otNote}
+            onChange={e => { setOtNote(e.target.value); setOtSuccess(null); setOtError(null); }}
             className="w-full bg-white border border-slate-200 rounded-2xl px-5 py-3.5 text-lg text-[#222222] focus:outline-none focus:ring-2 focus:ring-[#7B8CFA]"
           />
         </div>

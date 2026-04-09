@@ -90,8 +90,8 @@ export async function getPayroll(params = {}) {
 //  params: { employeeId, employeeName, date: 'YYYY-MM-DD', hours }
 //  return: { success, message }
 // ============================================================
-export async function logOT({ employeeId, employeeName, date, hours }) {
-  return gasPost({ action: 'logOT', employeeId, employeeName, date, hours });
+export async function logOT({ employeeId, employeeName, date, hours, note }) {
+  return gasPost({ action: 'logOT', employeeId, employeeName, date, hours, note: note || '' });
 }
 
 // ============================================================
