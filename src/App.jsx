@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import * as api     from './lib/api';
 import * as faceApi from './lib/faceApi';
-import ScanScreen  from './components/ScanScreen';
-import EnrollPage  from './components/EnrollPage';
+import ScanScreen    from './components/ScanScreen';
+import EnrollPage    from './components/EnrollPage';
+import EmployeesPage from './components/EmployeesPage';
 
 // ============================================================
 //  SVG Icons
@@ -120,9 +121,10 @@ function saveThresholds(t) {
 // ============================================================
 export default function App() {
   // --- App mode & kiosk flow ---
-  // appMode: 'KIOSK' | 'ADMIN' | 'ENROLL'
-  const [appMode,     setAppMode]     = useState('KIOSK');
-  const [currentStep, setCurrentStep] = useState('IDLE');
+  // appMode: 'KIOSK' | 'ADMIN' | 'ENROLL' | 'EMPLOYEES'
+  const [appMode,       setAppMode]       = useState('KIOSK');
+  const [currentStep,   setCurrentStep]   = useState('IDLE');
+  const [enrollTarget,  setEnrollTarget]  = useState(null); // employee to enroll
 
   // --- Face API model loading ---
   const [modelProgress, setModelProgress] = useState(0);  // 0–100
@@ -171,9 +173,19 @@ export default function App() {
   const [otDate,      setOtDate]      = useState('');
   const [otHours,     setOtHours]     = useState('');
   const [otNote,      setOtNote]      = useState('');
+  const [otRate,      setOtRate]      = useState(1.0);
   const [otSaving,    setOtSaving]    = useState(false);
   const [otSuccess,   setOtSuccess]   = useState(null);
   const [otError,     setOtError]     = useState(null);
+  // Payroll period state
+  const todayStr = () => new Date().toISOString().slice(0, 10);
+  const [payPeriodStart,   setPayPeriodStart]   = useState('');
+  const [payPeriodEnd,     setPayPeriodEnd]     = useState('');
+  const [payPeriods,       setPayPeriods]       = useState([]);
+  const [payPeriodPreview, setPayPeriodPreview] = useState(null); // { items, grandTotal }
+  const [payPeriodLoading, setPayPeriodLoading] = useState(false);
+  const [payPeriodError,   setPayPeriodError]   = useState(null);
+  const [payingId,         setPayingId]         = useState(null);
   // Add Employee modal state
   const [showAddEmp,    setShowAddEmp]    = useState(false);
   const [newEmpId,      setNewEmpId]      = useState('');
@@ -308,13 +320,13 @@ export default function App() {
     setAdminLoading(true);
     setAdminError(null);
     try {
-      const week = api.getCurrentWeekStr();
       if (activeTab === 'LOG') {
+        const week = api.getCurrentWeekStr();
         const data = await api.getLogs({ week });
         setAdminLogs(data.logs || []);
-      } else {
-        const data = await api.getPayroll({ week });
-        setAdminPayroll(data);
+      } else if (activeTab === 'PAYROLL') {
+        const r = await api.getPayrollPeriods();
+        setPayPeriods(r.periods || []);
       }
     } catch (err) {
       setAdminError('โหลดข้อมูลไม่สำเร็จ ลองใหม่อีกครั้ง');
@@ -342,10 +354,12 @@ export default function App() {
         date:         otDate,
         hours:        parseFloat(otHours),
         note:         otNote.trim(),
+        otRate:       otRate,
       });
-      setOtSuccess(`บันทึก OT ${otHours} ชม. ให้ ${emp?.name || otEmpId} วันที่ ${otDate} สำเร็จ`);
+      setOtSuccess(`บันทึก OT ${otHours} ชม. (x${otRate}) ให้ ${emp?.name || otEmpId} วันที่ ${otDate} สำเร็จ`);
       setOtHours('');
       setOtNote('');
+      setOtRate(1.0);
     } catch (err) {
       setOtError('บันทึก OT ไม่สำเร็จ กรุณาลองใหม่');
       console.error(err);
@@ -374,6 +388,30 @@ export default function App() {
     } finally {
       setAddEmpSaving(false);
     }
+  };
+
+  const loadPayrollPeriods = async () => {
+    try { const r = await api.getPayrollPeriods(); setPayPeriods(r.periods || []); } catch {}
+  };
+
+  const handleCreatePeriod = async () => {
+    if (!payPeriodStart || !payPeriodEnd) return;
+    setPayPeriodLoading(true); setPayPeriodError(null); setPayPeriodPreview(null);
+    try {
+      const r = await api.createPayrollPeriod({ startDate: payPeriodStart, endDate: payPeriodEnd });
+      setPayPeriodPreview(r);
+      await loadPayrollPeriods();
+    } catch (err) {
+      setPayPeriodError('สร้างงวดไม่สำเร็จ กรุณาลองใหม่');
+    } finally { setPayPeriodLoading(false); }
+  };
+
+  const handlePayPeriod = async (periodId) => {
+    setPayingId(periodId);
+    try {
+      await api.payPayrollPeriod(periodId);
+      await loadPayrollPeriods();
+    } catch {} finally { setPayingId(null); }
   };
 
   // ============================================================
@@ -853,26 +891,15 @@ export default function App() {
               ตั้งค่า
             </button>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={async () => { setShowAddEmp(true); try { const r = await api.getNextEmployeeId(); setNewEmpId(r.nextId); } catch {} }}
-              className="bg-[#C6F45D] text-[#222222] px-4 py-2 rounded-full text-base font-medium active:scale-95 transition-transform cursor-pointer touch-manipulation flex items-center gap-1.5"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-              </svg>
-              เพิ่มพนักงาน
-            </button>
-            <button
-              onClick={() => setAppMode('ENROLL')}
-              className="bg-[#7B8CFA] text-white px-4 py-2 rounded-full text-base font-medium active:scale-95 transition-transform cursor-pointer touch-manipulation flex items-center gap-1.5"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
-              </svg>
-              ลงทะเบียน
-            </button>
-          </div>
+          <button
+            onClick={() => setAppMode('EMPLOYEES')}
+            className="bg-[#7B8CFA] text-white px-4 py-2 rounded-full text-base font-medium active:scale-95 transition-transform cursor-pointer touch-manipulation flex items-center gap-1.5"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+            พนักงาน
+          </button>
         </div>
       </div>
 
@@ -967,83 +994,102 @@ export default function App() {
   );
 
   const renderAdminPayroll = () => {
-    const payroll    = adminPayroll?.payroll    || [];
-    const grandTotal = adminPayroll?.grandTotal || 0;
-
     return (
-      <>
-        <div className="flex justify-between items-end mb-6">
-          <div>
-            <h2 className="text-3xl font-bold text-[#222222] mb-1">Weekly Payroll</h2>
-            <p className="text-slate-500 text-lg">สรุปค่าแรงรายสัปดาห์ — {adminPayroll?.week || api.getCurrentWeekStr()}</p>
-          </div>
-          <button
-            onClick={exportPayrollCSV}
-            disabled={(adminPayroll?.payroll || []).length === 0}
-            className="bg-[#C6F45D] disabled:opacity-40 text-[#222222] px-5 py-2 rounded-full font-bold text-sm active:scale-95 transition-transform cursor-pointer touch-manipulation flex items-center gap-1.5"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-            </svg>
-            Export CSV
-          </button>
+      <div className="flex flex-col gap-6 pb-6">
+        <div>
+          <h2 className="text-3xl font-bold text-[#222222] mb-1">งวดค่าแรง</h2>
+          <p className="text-slate-400">เลือกช่วงวันที่แล้วสร้างงวดการจ่าย</p>
         </div>
 
-        {payroll.length === 0 ? (
-          <div className="flex-1 flex items-center justify-center text-slate-400 text-xl">ยังไม่มีข้อมูลในสัปดาห์นี้</div>
-        ) : (
-          <>
-            <div className="overflow-auto flex-1 rounded-2xl border border-slate-100 mb-4">
-              <table className="w-full text-left border-collapse">
-                <thead className="bg-[#F8FAFC] text-slate-500 sticky top-0">
+        {/* Date range + Create */}
+        <div className="bg-[#F8FAFC] rounded-2xl border border-slate-100 p-5 flex flex-col gap-4">
+          <p className="font-semibold text-slate-600">สร้างงวดการจ่ายใหม่</p>
+          <div className="flex gap-3 flex-wrap">
+            <div className="flex flex-col gap-1 flex-1 min-w-[140px]">
+              <label className="text-sm text-slate-500">วันเริ่มต้น</label>
+              <input type="date" value={payPeriodStart} onChange={e => setPayPeriodStart(e.target.value)}
+                className="border border-slate-200 rounded-xl px-4 py-2.5 text-base outline-none focus:border-[#7B8CFA] bg-white" />
+            </div>
+            <div className="flex flex-col gap-1 flex-1 min-w-[140px]">
+              <label className="text-sm text-slate-500">วันสิ้นสุด</label>
+              <input type="date" value={payPeriodEnd} onChange={e => setPayPeriodEnd(e.target.value)}
+                className="border border-slate-200 rounded-xl px-4 py-2.5 text-base outline-none focus:border-[#7B8CFA] bg-white" />
+            </div>
+            <div className="flex items-end">
+              <button onClick={handleCreatePeriod} disabled={!payPeriodStart || !payPeriodEnd || payPeriodLoading}
+                className="bg-[#7B8CFA] text-white px-6 py-2.5 rounded-xl font-bold disabled:opacity-40 cursor-pointer">
+                {payPeriodLoading ? 'กำลังคำนวณ...' : 'สร้างงวด'}
+              </button>
+            </div>
+          </div>
+          {payPeriodError && <p className="text-red-500 text-sm">{payPeriodError}</p>}
+        </div>
+
+        {/* Preview ล่าสุด */}
+        {payPeriodPreview && (
+          <div className="bg-white rounded-2xl border border-[#7B8CFA]/30 p-5 flex flex-col gap-3">
+            <p className="font-bold text-[#7B8CFA]">ผลการคำนวณ — งวด {payPeriodStart} ถึง {payPeriodEnd}</p>
+            <div className="overflow-auto rounded-xl border border-slate-100">
+              <table className="w-full text-sm text-left">
+                <thead className="bg-[#F8FAFC] text-slate-500">
                   <tr>
-                    <th className="p-4 font-bold border-b border-slate-100">รหัส</th>
-                    <th className="p-4 font-bold border-b border-slate-100">ชื่อ-สกุล</th>
-                    <th className="p-4 font-bold border-b border-slate-100 text-center">วันทำงาน</th>
-                    <th className="p-4 font-bold border-b border-slate-100 text-center">ชม.รวม</th>
-                    <th className="p-4 font-bold border-b border-slate-100 text-right">เรท</th>
-                    <th className="p-4 font-bold border-b border-slate-100 text-right">ยอดรวม</th>
-                    <th className="p-4 font-bold border-b border-slate-100 text-right text-red-400">หักมาสาย</th>
-                    <th className="p-4 font-bold border-b border-slate-100 text-right text-emerald-500">OT ชม.</th>
-                    <th className="p-4 font-bold border-b border-slate-100 text-right text-[#7B8CFA]">สุทธิ</th>
+                    <th className="px-4 py-2">ชื่อ</th>
+                    <th className="px-4 py-2 text-center">วันทำงาน</th>
+                    <th className="px-4 py-2 text-right">ค่าแรง</th>
+                    <th className="px-4 py-2 text-right text-red-400">หักมาสาย</th>
+                    <th className="px-4 py-2 text-right text-emerald-500">OT</th>
+                    <th className="px-4 py-2 text-right text-[#7B8CFA] font-bold">สุทธิ</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {payroll.map((pay, idx) => (
-                    <tr key={idx} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
-                      <td className="p-4 font-mono text-slate-500">{pay.employeeId}</td>
-                      <td className="p-4 font-bold text-[#222222]">{pay.name}</td>
-                      <td className="p-4 text-center font-bold text-slate-700">{pay.days} วัน</td>
-                      <td className="p-4 text-center text-slate-600">{pay.hours} ชม.</td>
-                      <td className="p-4 text-right">
-                        <span className="font-bold text-slate-700">฿{pay.rate}</span>
-                        <span className="text-sm text-slate-400 ml-1">/{pay.rateType === 'daily' ? 'วัน' : 'ชม.'}</span>
-                      </td>
-                      <td className="p-4 text-right text-slate-600">{formatMoney(pay.total)}</td>
-                      <td className="p-4 text-right text-red-500 font-medium">
-                        {pay.lateDeduction > 0 ? `-${formatMoney(pay.lateDeduction)}` : '-'}
-                      </td>
-                      <td className="p-4 text-right text-emerald-600 font-medium">
-                        {pay.otHours > 0 ? `+${pay.otHours} ชม.` : '-'}
-                      </td>
-                      <td className="p-4 text-right font-bold text-xl text-[#7B8CFA]">{formatMoney(pay.netTotal ?? pay.total)}</td>
+                  {(payPeriodPreview.items || []).map((item, i) => (
+                    <tr key={i} className="border-t border-slate-50">
+                      <td className="px-4 py-2 font-medium">{item.name}</td>
+                      <td className="px-4 py-2 text-center">{item.workDays} วัน</td>
+                      <td className="px-4 py-2 text-right">{formatMoney(item.baseAmount)}</td>
+                      <td className="px-4 py-2 text-right text-red-500">{item.lateDeduction > 0 ? `-${formatMoney(item.lateDeduction)}` : '-'}</td>
+                      <td className="px-4 py-2 text-right text-emerald-600">{item.otHours > 0 ? `+${item.otHours}ชม.` : '-'}</td>
+                      <td className="px-4 py-2 text-right font-bold text-[#7B8CFA]">{formatMoney(item.netTotal)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-            <div className="bg-[#F8FAFC] p-5 rounded-2xl flex justify-between items-center">
-              <div className="flex flex-col gap-1">
-                <div className="text-slate-500 font-medium">รวมยอดจ่ายทั้งหมด ({payroll.length} พนักงาน)</div>
-                {(adminPayroll?.totalDeduction > 0) && (
-                  <div className="text-red-400 text-sm">หักมาสายรวม -{formatMoney(adminPayroll.totalDeduction)}</div>
-                )}
-              </div>
-              <div className="text-4xl font-bold text-[#7B8CFA]">{formatMoney(adminPayroll?.grandNetTotal ?? grandTotal)}</div>
+            <div className="flex justify-between items-center pt-2">
+              <span className="text-slate-500">รวมสุทธิทั้งหมด</span>
+              <span className="text-2xl font-bold text-[#7B8CFA]">{formatMoney(payPeriodPreview.grandTotal)}</span>
             </div>
-          </>
+          </div>
         )}
-      </>
+
+        {/* ประวัติงวด */}
+        <div className="flex flex-col gap-3">
+          <p className="font-semibold text-slate-600">ประวัติการจ่าย</p>
+          {payPeriods.length === 0 ? (
+            <div className="text-slate-400 text-center py-8">ยังไม่มีงวดการจ่าย</div>
+          ) : (
+            payPeriods.map(p => (
+              <div key={p.id} className="bg-white rounded-2xl border border-slate-100 px-5 py-4 flex items-center justify-between gap-4">
+                <div className="flex flex-col gap-0.5">
+                  <p className="font-bold text-[#222222]">{p.startDate} — {p.endDate}</p>
+                  <p className="text-slate-400 text-sm">สร้างเมื่อ {p.createdAt?.slice(0, 10)} {p.paidAt ? `· จ่ายเมื่อ ${p.paidAt?.slice(0, 10)}` : ''}</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-xl font-bold text-[#7B8CFA]">{formatMoney(p.grandTotal)}</span>
+                  {p.status === 'Paid' ? (
+                    <span className="bg-green-100 text-green-600 text-sm font-bold px-3 py-1 rounded-full">จ่ายแล้ว</span>
+                  ) : (
+                    <button onClick={() => handlePayPeriod(p.id)} disabled={payingId === p.id}
+                      className="bg-[#C6F45D] text-[#222222] text-sm font-bold px-4 py-1.5 rounded-full cursor-pointer disabled:opacity-50">
+                      {payingId === p.id ? '...' : 'ยืนยันจ่าย'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
     );
   };
 
@@ -1200,6 +1246,20 @@ export default function App() {
           />
         </div>
 
+        {/* OT Rate */}
+        <div className="flex flex-col gap-2">
+          <label className="text-base font-semibold text-slate-500">อัตรา OT</label>
+          <select
+            value={otRate}
+            onChange={e => { setOtRate(parseFloat(e.target.value)); setOtSuccess(null); setOtError(null); }}
+            className="w-full bg-white border border-slate-200 rounded-2xl px-5 py-3.5 text-lg text-[#222222] focus:outline-none focus:ring-2 focus:ring-[#7B8CFA]"
+          >
+            <option value={1.0}>ปกติ (x1) — ค่าแรง ÷ 8 × ชม.</option>
+            <option value={1.5}>1.5x — วันธรรมดาล่วงเวลา</option>
+            <option value={2.0}>2x — วันหยุด</option>
+          </select>
+        </div>
+
         {/* Submit */}
         <button
           onClick={handleSubmitOT}
@@ -1307,12 +1367,20 @@ export default function App() {
       </header>
 
       {/* Main */}
-      <main className={`flex-1 relative z-10 flex pb-4 ${appMode === 'ADMIN' || appMode === 'ENROLL' ? 'items-stretch' : 'items-center justify-center pb-12'}`}>
+      <main className={`flex-1 relative z-10 flex pb-4 ${appMode === 'ADMIN' || appMode === 'ENROLL' || appMode === 'EMPLOYEES' ? 'items-stretch' : 'items-center justify-center pb-12'}`}>
         {appMode === 'ENROLL' ? (
           <EnrollPage
             employees={employees}
-            onDone={loadEmployees}
+            initialEmployee={enrollTarget}
+            onDone={() => { loadEmployees(); setEnrollTarget(null); }}
+            onBack={() => { setAppMode('EMPLOYEES'); setEnrollTarget(null); }}
+          />
+        ) : appMode === 'EMPLOYEES' ? (
+          <EmployeesPage
+            employees={employees}
             onBack={() => setAppMode('ADMIN')}
+            onEnroll={(emp) => { setEnrollTarget(emp); setAppMode('ENROLL'); }}
+            onRefresh={loadEmployees}
           />
         ) : appMode === 'ADMIN' ? (
           renderAdminDashboard()

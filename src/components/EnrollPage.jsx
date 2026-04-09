@@ -173,13 +173,13 @@ function CameraCapture({ onCapture, captureCount }) {
 // ============================================================
 //  EnrollPage main component
 // ============================================================
-export default function EnrollPage({ employees, onDone, onBack }) {
-  const [selectedEmp, setSelectedEmp] = useState(null);
+export default function EnrollPage({ employees, onDone, onBack, initialEmployee = null }) {
+  const [selectedEmp, setSelectedEmp] = useState(initialEmployee);
   const [captures, setCaptures]       = useState([]);   // [{ descriptor, thumbnail }]
   const [saving, setSaving]           = useState(false);
   const [saved, setSaved]             = useState(false);
   const [saveError, setSaveError]     = useState(null);
-  const [step, setStep]               = useState('SELECT'); // SELECT | CAPTURE | DONE
+  const [step, setStep]               = useState(initialEmployee ? 'CAPTURE' : 'SELECT'); // SELECT | CAPTURE | DONE
 
   const handleCapture = (data) => {
     setCaptures(prev => {

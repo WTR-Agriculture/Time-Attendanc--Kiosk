@@ -89,6 +89,17 @@ class LogOTBody(BaseModel):
     date: str
     hours: float
     note: Optional[str] = ""
+    otRate: Optional[float] = 1.0
+
+class UpdateEmployeeBody(BaseModel):
+    name: str
+    department: Optional[str] = ""
+    rate: float
+    rateType: str
+
+class CreatePayrollPeriodBody(BaseModel):
+    startDate: str  # YYYY-MM-DD
+    endDate: str    # YYYY-MM-DD
 
 class CreateEmployeeBody(BaseModel):
     employeeId: str
@@ -422,18 +433,19 @@ def log_ot(body: LogOTBody):
     cursor = conn.cursor()
 
     # overwrite ถ้ามีอยู่แล้ว (MERGE)
+    ot_rate = body.otRate if body.otRate else 1.0
     cursor.execute("""
         MERGE OTLogs AS target
         USING (SELECT ? AS EmployeeId, ? AS DateWork) AS source
         ON target.EmployeeId = source.EmployeeId AND target.DateWork = source.DateWork
         WHEN MATCHED THEN
-            UPDATE SET Hours = ?, Note = ?, CreatedAt = GETDATE()
+            UPDATE SET Hours = ?, Note = ?, OTRate = ?, CreatedAt = GETDATE()
         WHEN NOT MATCHED THEN
-            INSERT (EmployeeId, Name, DateWork, Hours, Note)
-            VALUES (?, ?, ?, ?, ?);
+            INSERT (EmployeeId, Name, DateWork, Hours, Note, OTRate)
+            VALUES (?, ?, ?, ?, ?, ?);
     """, body.employeeId, body.date,
-        body.hours, body.note,
-        body.employeeId, body.employeeName, body.date, body.hours, body.note)
+        body.hours, body.note, ot_rate,
+        body.employeeId, body.employeeName, body.date, body.hours, body.note, ot_rate)
 
     conn.commit()
     conn.close()
@@ -530,6 +542,31 @@ def create_employee(body: CreateEmployeeBody):
     return {"success": True, "message": f"เพิ่มพนักงาน {body.name} เรียบร้อย"}
 
 # ============================================================
+#  PUT /api/employees/{employeeId} — แก้ไขข้อมูลพนักงาน
+# ============================================================
+@app.put("/api/employees/{employee_id}")
+def update_employee(employee_id: str, body: UpdateEmployeeBody):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE Employees SET Name=?, Department=?, Rate=?, RateType=?
+        WHERE EmployeeId=? AND IsActive=1
+    """, body.name, body.department, body.rate, body.rateType, employee_id)
+    if cursor.rowcount == 0:
+        conn.close()
+        raise HTTPException(status_code=404, detail="ไม่พบพนักงาน")
+    cursor.execute("""
+        MERGE PayrollConfig AS target
+        USING (SELECT ? AS EmployeeId, ? AS Name, ? AS Rate, ? AS RateType) AS src
+        ON target.EmployeeId = src.EmployeeId
+        WHEN MATCHED THEN UPDATE SET Name=src.Name, Rate=src.Rate, RateType=src.RateType
+        WHEN NOT MATCHED THEN INSERT (EmployeeId, Name, Rate, RateType) VALUES (src.EmployeeId, src.Name, src.Rate, src.RateType);
+    """, employee_id, body.name, body.rate, body.rateType)
+    conn.commit()
+    conn.close()
+    return {"success": True, "message": f"อัปเดตข้อมูล {body.name} เรียบร้อย"}
+
+# ============================================================
 #  DELETE /api/employees/{employeeId} — ปิดใช้งานพนักงาน
 # ============================================================
 @app.delete("/api/employees/{employee_id}")
@@ -543,6 +580,171 @@ def delete_employee(employee_id: str):
     conn.commit()
     conn.close()
     return {"success": True, "message": "ปิดใช้งานพนักงานแล้ว"}
+
+# ============================================================
+#  POST /api/payroll/periods — สร้างงวดการจ่าย (snapshot)
+# ============================================================
+@app.post("/api/payroll/periods")
+def create_payroll_period(body: CreatePayrollPeriodBody):
+    import datetime as dt
+    conn = get_db()
+    cursor = conn.cursor()
+
+    # โหลด employees
+    cursor.execute("SELECT EmployeeId, Name, Department, Rate, RateType FROM Employees WHERE IsActive=1")
+    employees = cursor.fetchall()
+
+    # โหลด attendance logs ในช่วงวันที่
+    cursor.execute("""
+        SELECT EmployeeId, Name, ActionType, DateStr, TimeStr
+        FROM AttendanceLogs
+        WHERE CAST(DateStr AS DATE) BETWEEN ? AND ?
+        ORDER BY EmployeeId, DateStr, TimeStr
+    """, body.startDate, body.endDate)
+    log_rows = cursor.fetchall()
+
+    # โหลด OT logs ในช่วงวันที่
+    cursor.execute("""
+        SELECT EmployeeId, Hours, OTRate
+        FROM OTLogs
+        WHERE DateWork BETWEEN ? AND ?
+    """, body.startDate, body.endDate)
+    ot_rows = cursor.fetchall()
+
+    # รวม OT ต่อคน
+    ot_map = {}
+    for r in ot_rows:
+        emp_id, hrs, rate = r[0], float(r[1]), float(r[2])
+        if emp_id not in ot_map:
+            ot_map[emp_id] = {"hours": 0, "amount": 0}
+        ot_map[emp_id]["hours"] += hrs
+
+    # คำนวณ payroll ต่อคน
+    daily_logs = group_logs_to_daily(log_rows)
+    emp_map = {r[0]: r for r in employees}
+
+    items = []
+    grand_total = 0
+
+    for emp_id, emp_data in emp_map.items():
+        name, dept, rate, rate_type = emp_data[1], emp_data[2], float(emp_data[3]), emp_data[4]
+        hourly_rate = rate / 8
+
+        # กรอง logs ของคนนี้
+        emp_daily = [d for d in daily_logs.values() if d["employeeId"] == emp_id]
+        work_days = len([d for d in emp_daily if d["in"] != "-"])
+        base = rate * work_days if rate_type == "daily" else 0
+
+        # หักมาสาย (นาที → บาท)
+        late_deduction = 0
+        for d in emp_daily:
+            if d.get("lateMins", 0) > 0:
+                late_deduction += round(hourly_rate / 60 * d["lateMins"], 2)
+
+        # OT
+        ot_hours = ot_map.get(emp_id, {}).get("hours", 0)
+        ot_amount = round(hourly_rate * ot_hours, 2)
+
+        net = round(base - late_deduction + ot_amount, 2)
+        grand_total += net
+
+        items.append({
+            "employeeId":    emp_id,
+            "name":          name,
+            "department":    dept or "",
+            "workDays":      work_days,
+            "baseAmount":    base,
+            "lateDeduction": late_deduction,
+            "otHours":       ot_hours,
+            "otAmount":      ot_amount,
+            "netTotal":      net,
+        })
+
+    # บันทึก PayrollPeriods
+    cursor.execute("""
+        INSERT INTO PayrollPeriods (StartDate, EndDate, GrandTotal, Status)
+        VALUES (?, ?, ?, 'Unpaid')
+    """, body.startDate, body.endDate, round(grand_total, 2))
+    period_id = cursor.execute("SELECT @@IDENTITY").fetchone()[0]
+
+    # บันทึก PayrollPeriodItems
+    for item in items:
+        cursor.execute("""
+            INSERT INTO PayrollPeriodItems
+              (PeriodId, EmployeeId, Name, Department, WorkDays, BaseAmount, LateDeduction, OTHours, OTAmount, NetTotal)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, period_id, item["employeeId"], item["name"], item["department"],
+            item["workDays"], item["baseAmount"], item["lateDeduction"],
+            item["otHours"], item["otAmount"], item["netTotal"])
+
+    conn.commit()
+    conn.close()
+    return {"success": True, "periodId": int(period_id), "grandTotal": round(grand_total, 2), "items": items}
+
+# ============================================================
+#  GET /api/payroll/periods — ดูประวัติงวดทั้งหมด
+# ============================================================
+@app.get("/api/payroll/periods")
+def get_payroll_periods():
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT Id, StartDate, EndDate, GrandTotal, Status, PaidAt, CreatedAt
+        FROM PayrollPeriods ORDER BY Id DESC
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+    return {"periods": [
+        {
+            "id":         r[0],
+            "startDate":  str(r[1]),
+            "endDate":    str(r[2]),
+            "grandTotal": float(r[3]),
+            "status":     r[4],
+            "paidAt":     str(r[5]) if r[5] else None,
+            "createdAt":  str(r[6]),
+        } for r in rows
+    ]}
+
+# ============================================================
+#  GET /api/payroll/periods/{id} — ดูรายละเอียดงวด
+# ============================================================
+@app.get("/api/payroll/periods/{period_id}")
+def get_payroll_period_detail(period_id: int):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT Id, StartDate, EndDate, GrandTotal, Status, PaidAt FROM PayrollPeriods WHERE Id=?", period_id)
+    p = cursor.fetchone()
+    if not p:
+        conn.close()
+        raise HTTPException(status_code=404, detail="ไม่พบงวดนี้")
+    cursor.execute("""
+        SELECT EmployeeId, Name, Department, WorkDays, BaseAmount, LateDeduction, OTHours, OTAmount, NetTotal
+        FROM PayrollPeriodItems WHERE PeriodId=?
+    """, period_id)
+    items = [{"employeeId": r[0], "name": r[1], "department": r[2], "workDays": r[3],
+              "baseAmount": float(r[4]), "lateDeduction": float(r[5]),
+              "otHours": float(r[6]), "otAmount": float(r[7]), "netTotal": float(r[8])} for r in cursor.fetchall()]
+    conn.close()
+    return {"id": p[0], "startDate": str(p[1]), "endDate": str(p[2]),
+            "grandTotal": float(p[3]), "status": p[4], "paidAt": str(p[5]) if p[5] else None, "items": items}
+
+# ============================================================
+#  PUT /api/payroll/periods/{id}/pay — ยืนยันจ่ายเงิน
+# ============================================================
+@app.put("/api/payroll/periods/{period_id}/pay")
+def pay_payroll_period(period_id: int):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE PayrollPeriods SET Status='Paid', PaidAt=GETDATE() WHERE Id=? AND Status='Unpaid'
+    """, period_id)
+    if cursor.rowcount == 0:
+        conn.close()
+        raise HTTPException(status_code=400, detail="งวดนี้จ่ายแล้ว หรือไม่พบ")
+    conn.commit()
+    conn.close()
+    return {"success": True, "message": "ยืนยันการจ่ายเงินเรียบร้อย"}
 
 # ============================================================
 #  Helpers

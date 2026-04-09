@@ -86,8 +86,8 @@ export async function getPayroll(params = {}) {
 //  params: { employeeId, employeeName, date: 'YYYY-MM-DD', hours, note }
 //  return: { success, message }
 // ============================================================
-export async function logOT({ employeeId, employeeName, date, hours, note }) {
-  return apiPost('/api/ot', { employeeId, employeeName, date, hours, note: note || '' });
+export async function logOT({ employeeId, employeeName, date, hours, note, otRate }) {
+  return apiPost('/api/ot', { employeeId, employeeName, date, hours, note: note || '', otRate: otRate ?? 1.0 });
 }
 
 // ============================================================
@@ -125,6 +125,40 @@ export async function deleteEmployee(employeeId) {
     method: 'DELETE',
   });
   if (!res.ok) throw new Error(`API DELETE error: ${res.status}`);
+  return res.json();
+}
+
+// ============================================================
+//  updateEmployee — แก้ไขข้อมูลพนักงาน
+// ============================================================
+export async function updateEmployee(employeeId, { name, department, rate, rateType }) {
+  const res = await fetch(`${API_URL}/api/employees/${encodeURIComponent(employeeId)}`, {
+    method:  'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ name, department, rate, rateType }),
+  });
+  if (!res.ok) throw new Error(`API PUT error: ${res.status}`);
+  return res.json();
+}
+
+// ============================================================
+//  Payroll Periods
+// ============================================================
+export async function createPayrollPeriod({ startDate, endDate }) {
+  return apiPost('/api/payroll/periods', { startDate, endDate });
+}
+
+export async function getPayrollPeriods() {
+  return apiGet('/api/payroll/periods');
+}
+
+export async function getPayrollPeriodDetail(periodId) {
+  return apiGet(`/api/payroll/periods/${periodId}`);
+}
+
+export async function payPayrollPeriod(periodId) {
+  const res = await fetch(`${API_URL}/api/payroll/periods/${periodId}/pay`, { method: 'PUT' });
+  if (!res.ok) throw new Error(`API PUT error: ${res.status}`);
   return res.json();
 }
 
