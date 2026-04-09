@@ -90,6 +90,13 @@ class LogOTBody(BaseModel):
     hours: float
     note: Optional[str] = ""
 
+class CreateEmployeeBody(BaseModel):
+    employeeId: str
+    name: str
+    department: Optional[str] = ""
+    rate: float = 0
+    rateType: str = "daily"  # 'daily' | 'hourly'
+
 # ============================================================
 #  GET /api/employees
 # ============================================================
@@ -477,6 +484,52 @@ def get_dashboard(date: Optional[str] = None):
         "absent":  absent,
         "late":    late,
     }
+
+# ============================================================
+#  POST /api/employees — เพิ่มพนักงานใหม่
+# ============================================================
+@app.post("/api/employees")
+def create_employee(body: CreateEmployeeBody):
+    conn = get_db()
+    cursor = conn.cursor()
+    # ตรวจว่า employeeId ซ้ำมั้ย
+    cursor.execute("SELECT 1 FROM Employees WHERE EmployeeId = ?", body.employeeId)
+    if cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=400, detail="EmployeeId นี้มีอยู่แล้ว")
+
+    cursor.execute("""
+        INSERT INTO Employees (EmployeeId, Name, Department, IsActive, Rate, RateType)
+        VALUES (?, ?, ?, 1, ?, ?)
+    """, body.employeeId, body.name, body.department, body.rate, body.rateType)
+
+    # sync PayrollConfig ด้วย
+    cursor.execute("""
+        MERGE PayrollConfig AS target
+        USING (SELECT ? AS EmployeeId, ? AS Name, ? AS Rate, ? AS RateType) AS src
+        ON target.EmployeeId = src.EmployeeId
+        WHEN MATCHED THEN UPDATE SET Name=src.Name, Rate=src.Rate, RateType=src.RateType
+        WHEN NOT MATCHED THEN INSERT (EmployeeId, Name, Rate, RateType) VALUES (src.EmployeeId, src.Name, src.Rate, src.RateType);
+    """, body.employeeId, body.name, body.rate, body.rateType)
+
+    conn.commit()
+    conn.close()
+    return {"success": True, "message": f"เพิ่มพนักงาน {body.name} เรียบร้อย"}
+
+# ============================================================
+#  DELETE /api/employees/{employeeId} — ปิดใช้งานพนักงาน
+# ============================================================
+@app.delete("/api/employees/{employee_id}")
+def delete_employee(employee_id: str):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE Employees SET IsActive = 0 WHERE EmployeeId = ?", employee_id)
+    if cursor.rowcount == 0:
+        conn.close()
+        raise HTTPException(status_code=404, detail="ไม่พบพนักงาน")
+    conn.commit()
+    conn.close()
+    return {"success": True, "message": "ปิดใช้งานพนักงานแล้ว"}
 
 # ============================================================
 #  Helpers

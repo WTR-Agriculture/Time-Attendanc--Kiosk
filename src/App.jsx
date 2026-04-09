@@ -174,6 +174,15 @@ export default function App() {
   const [otSaving,    setOtSaving]    = useState(false);
   const [otSuccess,   setOtSuccess]   = useState(null);
   const [otError,     setOtError]     = useState(null);
+  // Add Employee modal state
+  const [showAddEmp,    setShowAddEmp]    = useState(false);
+  const [newEmpId,      setNewEmpId]      = useState('');
+  const [newEmpName,    setNewEmpName]    = useState('');
+  const [newEmpDept,    setNewEmpDept]    = useState('');
+  const [newEmpRate,    setNewEmpRate]    = useState('');
+  const [newEmpRateType,setNewEmpRateType]= useState('daily');
+  const [addEmpSaving,  setAddEmpSaving]  = useState(false);
+  const [addEmpError,   setAddEmpError]   = useState(null);
   const adminTimeoutRef = useRef(null);
 
   // ============================================================
@@ -342,6 +351,28 @@ export default function App() {
       console.error(err);
     } finally {
       setOtSaving(false);
+    }
+  };
+
+  const handleAddEmployee = async () => {
+    if (!newEmpId.trim() || !newEmpName.trim() || !newEmpRate) return;
+    setAddEmpSaving(true);
+    setAddEmpError(null);
+    try {
+      await api.createEmployee({
+        employeeId:  newEmpId.trim(),
+        name:        newEmpName.trim(),
+        department:  newEmpDept.trim(),
+        rate:        parseFloat(newEmpRate),
+        rateType:    newEmpRateType,
+      });
+      setShowAddEmp(false);
+      setNewEmpId(''); setNewEmpName(''); setNewEmpDept(''); setNewEmpRate(''); setNewEmpRateType('daily');
+      await loadEmployees();
+    } catch (err) {
+      setAddEmpError(err.message || 'เพิ่มพนักงานไม่สำเร็จ');
+    } finally {
+      setAddEmpSaving(false);
     }
   };
 
@@ -822,15 +853,26 @@ export default function App() {
               ตั้งค่า
             </button>
           </div>
-          <button
-            onClick={() => setAppMode('ENROLL')}
-            className="bg-[#7B8CFA] text-white px-4 py-2 rounded-full text-base font-medium active:scale-95 transition-transform cursor-pointer touch-manipulation flex items-center gap-1.5"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
-            </svg>
-            ลงทะเบียน
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowAddEmp(true)}
+              className="bg-[#C6F45D] text-[#222222] px-4 py-2 rounded-full text-base font-medium active:scale-95 transition-transform cursor-pointer touch-manipulation flex items-center gap-1.5"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+              </svg>
+              เพิ่มพนักงาน
+            </button>
+            <button
+              onClick={() => setAppMode('ENROLL')}
+              className="bg-[#7B8CFA] text-white px-4 py-2 rounded-full text-base font-medium active:scale-95 transition-transform cursor-pointer touch-manipulation flex items-center gap-1.5"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
+              </svg>
+              ลงทะเบียน
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1289,6 +1331,86 @@ export default function App() {
       </main>
 
       {showPinModal && renderPinModal()}
+
+      {/* Add Employee Modal */}
+      {showAddEmp && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="bg-white rounded-3xl shadow-xl w-full max-w-md p-6 flex flex-col gap-4">
+            <h2 className="text-xl font-bold text-[#222222]">เพิ่มพนักงานใหม่</h2>
+
+            <div className="flex flex-col gap-3">
+              <div>
+                <label className="text-sm font-medium text-slate-500 mb-1 block">รหัสพนักงาน *</label>
+                <input
+                  value={newEmpId}
+                  onChange={e => setNewEmpId(e.target.value)}
+                  placeholder="เช่น 001"
+                  className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-base outline-none focus:border-[#7B8CFA]"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-slate-500 mb-1 block">ชื่อ-นามสกุล *</label>
+                <input
+                  value={newEmpName}
+                  onChange={e => setNewEmpName(e.target.value)}
+                  placeholder="เช่น สมชาย ใจดี"
+                  className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-base outline-none focus:border-[#7B8CFA]"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-slate-500 mb-1 block">แผนก</label>
+                <input
+                  value={newEmpDept}
+                  onChange={e => setNewEmpDept(e.target.value)}
+                  placeholder="เช่น ขาย"
+                  className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-base outline-none focus:border-[#7B8CFA]"
+                />
+              </div>
+              <div className="flex gap-3">
+                <div className="flex-1">
+                  <label className="text-sm font-medium text-slate-500 mb-1 block">อัตราค่าแรง *</label>
+                  <input
+                    type="number"
+                    value={newEmpRate}
+                    onChange={e => setNewEmpRate(e.target.value)}
+                    placeholder="0"
+                    className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-base outline-none focus:border-[#7B8CFA]"
+                  />
+                </div>
+                <div className="flex-1">
+                  <label className="text-sm font-medium text-slate-500 mb-1 block">ประเภท</label>
+                  <select
+                    value={newEmpRateType}
+                    onChange={e => setNewEmpRateType(e.target.value)}
+                    className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-base outline-none focus:border-[#7B8CFA] bg-white"
+                  >
+                    <option value="daily">รายวัน</option>
+                    <option value="hourly">รายชั่วโมง</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {addEmpError && <p className="text-red-500 text-sm">{addEmpError}</p>}
+
+            <div className="flex gap-3 mt-2">
+              <button
+                onClick={() => { setShowAddEmp(false); setAddEmpError(null); }}
+                className="flex-1 bg-[#F2F2F2] text-slate-600 py-3 rounded-full font-medium cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                onClick={handleAddEmployee}
+                disabled={addEmpSaving || !newEmpId.trim() || !newEmpName.trim() || !newEmpRate}
+                className="flex-1 bg-[#7B8CFA] text-white py-3 rounded-full font-bold cursor-pointer disabled:opacity-50"
+              >
+                {addEmpSaving ? 'กำลังบันทึก...' : 'บันทึก'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

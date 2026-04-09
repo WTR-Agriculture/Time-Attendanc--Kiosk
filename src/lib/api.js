@@ -100,6 +100,27 @@ export async function getOT(params = {}) {
 }
 
 // ============================================================
+//  createEmployee — เพิ่มพนักงานใหม่
+//  params: { employeeId, name, department, rate, rateType }
+//  return: { success, message }
+// ============================================================
+export async function createEmployee({ employeeId, name, department, rate, rateType }) {
+  return apiPost('/api/employees', { employeeId, name, department, rate, rateType });
+}
+
+// ============================================================
+//  deleteEmployee — ปิดใช้งานพนักงาน (soft delete)
+//  return: { success, message }
+// ============================================================
+export async function deleteEmployee(employeeId) {
+  const res = await fetch(`${API_URL}/api/employees/${encodeURIComponent(employeeId)}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error(`API DELETE error: ${res.status}`);
+  return res.json();
+}
+
+// ============================================================
 //  getCurrentWeekStr — helper คืน "YYYY-WW" สัปดาห์ปัจจุบัน
 // ============================================================
 export function getCurrentWeekStr() {
