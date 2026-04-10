@@ -49,6 +49,33 @@ app.add_middleware(
 # ============================================================
 face_app = None
 
+# embedding cache: list of { employeeId, name, department, rate, rateType, embedding: np.array }
+_embed_cache: list = []
+
+def reload_embed_cache():
+    """โหลด embeddings ทั้งหมดจาก DB เข้า memory (เรียกตอน startup และหลัง enroll)"""
+    global _embed_cache
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT EmployeeId, Name, Department, Rate, RateType, FaceDescriptorJson
+        FROM Employees WHERE IsActive = 1 AND FaceDescriptorJson IS NOT NULL
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+    cache = []
+    for r in rows:
+        try:
+            emb = np.array(json.loads(r[5]), dtype=np.float32)
+            cache.append({
+                "employeeId": r[0], "name": r[1], "department": r[2],
+                "rate": float(r[3]), "rateType": r[4], "embedding": emb,
+            })
+        except Exception:
+            continue
+    _embed_cache = cache
+    print(f"Embedding cache loaded: {len(_embed_cache)} employees")
+
 def decode_and_resize(img_b64: str, max_size: int = 320):
     """Decode base64 image and resize to max_size (keeps aspect ratio)."""
     img_bytes = base64.b64decode(img_b64)
@@ -69,6 +96,7 @@ async def startup():
     face_app = insightface.app.FaceAnalysis(name="buffalo_sc", providers=["CPUExecutionProvider"])
     face_app.prepare(ctx_id=0, det_size=(320, 320))
     print("InsightFace ready!")
+    reload_embed_cache()
 
 # ============================================================
 #  DB helper
@@ -175,37 +203,18 @@ def recognize_face(body: RecognizeFaceBody):
         return {"matched": False, "message": "ไม่พบใบหน้าในรูป"}
 
     query_embedding = faces[0].embedding  # ใช้หน้าแรกที่เจอ
-
-    # โหลด employees ทั้งหมดที่มี face descriptor
-    conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT EmployeeId, Name, Department, Rate, RateType, FaceDescriptorJson
-        FROM Employees WHERE IsActive = 1 AND FaceDescriptorJson IS NOT NULL
-    """)
-    rows = cursor.fetchall()
-    conn.close()
+    q_norm = query_embedding / (np.linalg.norm(query_embedding) + 1e-10)
 
     best_match = None
     best_score = -1
 
-    for r in rows:
-        try:
-            stored = np.array(json.loads(r[5]), dtype=np.float32)
-            # cosine similarity
-            score = float(np.dot(query_embedding, stored) /
-                         (np.linalg.norm(query_embedding) * np.linalg.norm(stored)))
-            if score > best_score:
-                best_score = score
-                best_match = {
-                    "employeeId": r[0],
-                    "name":       r[1],
-                    "department": r[2],
-                    "rate":       float(r[3]),
-                    "rateType":   r[4],
-                }
-        except Exception:
-            continue
+    for emp in _embed_cache:
+        stored = emp["embedding"]
+        s_norm = stored / (np.linalg.norm(stored) + 1e-10)
+        score = float(np.dot(q_norm, s_norm))
+        if score > best_score:
+            best_score = score
+            best_match = {k: emp[k] for k in ("employeeId", "name", "department", "rate", "rateType")}
 
     THRESHOLD = 0.4  # ปรับได้ใน settings
     if best_score >= THRESHOLD:
@@ -256,6 +265,7 @@ def enroll_face(body: EnrollFaceBody):
 
     conn.commit()
     conn.close()
+    reload_embed_cache()  # อัปเดต cache ทันที
     return {"success": True, "message": f"บันทึกใบหน้าจาก {len(embeddings)} ท่า สำเร็จ"}
 
 # ============================================================
