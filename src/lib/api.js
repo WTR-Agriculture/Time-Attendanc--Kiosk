@@ -190,8 +190,11 @@ export async function payPayrollPeriod(periodId) {
 //  getCurrentWeekStr — helper คืน "YYYY-WW" สัปดาห์ปัจจุบัน
 // ============================================================
 export function getCurrentWeekStr() {
-  const now       = new Date();
-  const startYear = new Date(now.getFullYear(), 0, 1);
-  const week      = Math.ceil(((now - startYear) / 86400000 + startYear.getDay() + 1) / 7);
+  const now  = new Date();
+  const jan1 = new Date(now.getFullYear(), 0, 1);
+  // Monday-based week number (matches Python's %W)
+  const jan1MondayBased = (jan1.getDay() + 6) % 7; // Mon=0 … Sun=6
+  const dayOfYear = Math.floor((now - jan1) / 86400000); // 0-indexed
+  const week = Math.floor((dayOfYear + jan1MondayBased) / 7);
   return `${now.getFullYear()}-${String(week).padStart(2, '0')}`;
 }
