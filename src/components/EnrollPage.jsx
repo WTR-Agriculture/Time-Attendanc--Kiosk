@@ -15,24 +15,24 @@ import * as api     from '../lib/api';
 //  5 ท่าที่ต้องสแกน
 // ============================================================
 const POSES = [
-  { id: 'front',  label: 'หน้าตรง',       icon: '😐', hint: 'มองตรงเข้ากล้อง' },
-  { id: 'left',   label: 'หันซ้าย',        icon: '👈', hint: 'หันหน้าไปทางซ้ายเล็กน้อย' },
-  { id: 'right',  label: 'หันขวา',         icon: '👉', hint: 'หันหน้าไปทางขวาเล็กน้อย' },
-  { id: 'up',     label: 'เงยหน้า',        icon: '☝️', hint: 'เงยหน้าขึ้นเล็กน้อย' },
-  { id: 'down',   label: 'ก้มหน้า',        icon: '👇', hint: 'ก้มหน้าลงเล็กน้อย' },
+  { id: 'front', label: 'หน้าตรง',  icon: '😐', hint: 'มองตรงเข้ากล้อง' },
+  { id: 'left',  label: 'หันซ้าย', icon: '👈', hint: 'หันหน้าไปทางซ้ายเล็กน้อย' },
+  { id: 'right', label: 'หันขวา',  icon: '👉', hint: 'หันหน้าไปทางขวาเล็กน้อย' },
 ];
 
-const CAPTURE_DELAY_MS = 1200; // ms หลังเจอหน้าก่อน capture
+const CAPTURE_DELAY_MS = 600; // ms หลังเจอหน้าก่อน capture
 
 // ============================================================
 //  Helper: capture video frame → base64 JPEG
 // ============================================================
-function captureBase64(videoEl, quality = 0.85) {
+function captureBase64(videoEl, quality = 0.8) {
+  const maxSize = 320;
+  const scale = Math.min(1, maxSize / Math.max(videoEl.videoWidth, videoEl.videoHeight));
   const canvas = document.createElement('canvas');
-  canvas.width  = videoEl.videoWidth;
-  canvas.height = videoEl.videoHeight;
-  canvas.getContext('2d').drawImage(videoEl, 0, 0);
-  return canvas.toDataURL('image/jpeg', quality).split(',')[1]; // strip "data:..."
+  canvas.width  = Math.round(videoEl.videoWidth  * scale);
+  canvas.height = Math.round(videoEl.videoHeight * scale);
+  canvas.getContext('2d').drawImage(videoEl, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL('image/jpeg', quality).split(',')[1];
 }
 
 // ============================================================

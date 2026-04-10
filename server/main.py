@@ -49,12 +49,25 @@ app.add_middleware(
 # ============================================================
 face_app = None
 
+def decode_and_resize(img_b64: str, max_size: int = 320):
+    """Decode base64 image and resize to max_size (keeps aspect ratio)."""
+    img_bytes = base64.b64decode(img_b64)
+    img_array = np.frombuffer(img_bytes, dtype=np.uint8)
+    img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+    if img is None:
+        return None
+    h, w = img.shape[:2]
+    if max(h, w) > max_size:
+        scale = max_size / max(h, w)
+        img = cv2.resize(img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
+    return img
+
 @app.on_event("startup")
 async def startup():
     global face_app
     print("Loading InsightFace model...")
     face_app = insightface.app.FaceAnalysis(name="buffalo_sc", providers=["CPUExecutionProvider"])
-    face_app.prepare(ctx_id=0, det_size=(640, 640))
+    face_app.prepare(ctx_id=0, det_size=(320, 320))
     print("InsightFace ready!")
 
 # ============================================================
@@ -152,11 +165,7 @@ def get_employees():
 # ============================================================
 @app.post("/api/recognize")
 def recognize_face(body: RecognizeFaceBody):
-    # decode base64 → image
-    img_bytes = base64.b64decode(body.imageBase64)
-    img_array = np.frombuffer(img_bytes, dtype=np.uint8)
-    img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-
+    img = decode_and_resize(body.imageBase64, max_size=320)
     if img is None:
         raise HTTPException(status_code=400, detail="Invalid image")
 
@@ -218,9 +227,7 @@ def enroll_face(body: EnrollFaceBody):
     embeddings = []
     for img_b64 in body.images:
         try:
-            img_bytes = base64.b64decode(img_b64)
-            img_array = np.frombuffer(img_bytes, dtype=np.uint8)
-            img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+            img = decode_and_resize(img_b64, max_size=320)
             if img is None:
                 continue
             faces = face_app.get(img)

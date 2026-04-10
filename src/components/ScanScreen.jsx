@@ -13,11 +13,13 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import * as faceApi from '../lib/faceApi';
 import * as api     from '../lib/api';
 
-function captureBase64(videoEl, quality = 0.85) {
+function captureBase64(videoEl, quality = 0.8) {
+  const maxSize = 320;
+  const scale = Math.min(1, maxSize / Math.max(videoEl.videoWidth, videoEl.videoHeight));
   const canvas = document.createElement('canvas');
-  canvas.width  = videoEl.videoWidth;
-  canvas.height = videoEl.videoHeight;
-  canvas.getContext('2d').drawImage(videoEl, 0, 0);
+  canvas.width  = Math.round(videoEl.videoWidth  * scale);
+  canvas.height = Math.round(videoEl.videoHeight * scale);
+  canvas.getContext('2d').drawImage(videoEl, 0, 0, canvas.width, canvas.height);
   return canvas.toDataURL('image/jpeg', quality).split(',')[1];
 }
 
