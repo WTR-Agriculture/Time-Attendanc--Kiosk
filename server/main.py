@@ -627,8 +627,7 @@ def get_employee_logs(employee_id: str, limit: int = 60):
     """, limit, employee_id)
     rows = cursor.fetchall()
     conn.close()
-    daily = group_logs_to_daily(rows)
-    return {"logs": list(daily.values())}
+    return {"logs": group_logs_to_daily(rows)}
 
 # ============================================================
 #  GET /api/employees/{id}/payroll — ประวัติงวดค่าแรงรายคน
