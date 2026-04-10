@@ -12,12 +12,44 @@ import * as faceApi from '../lib/faceApi';
 import * as api     from '../lib/api';
 
 // ============================================================
-//  5 ท่าที่ต้องสแกน
+//  3 ท่าที่ต้องสแกน
 // ============================================================
+const FaceFrontIcon = ({ size = 24, color = 'currentColor' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="8" r="5" />
+    <path d="M3 20c0-4 4-7 9-7s9 3 9 7" />
+    <circle cx="10" cy="8" r="0.8" fill={color} stroke="none" />
+    <circle cx="14" cy="8" r="0.8" fill={color} stroke="none" />
+    <path d="M10 10.5c.5.7 1.5.7 2 0" strokeWidth="1.5" />
+  </svg>
+);
+
+const FaceLeftIcon = ({ size = 24, color = 'currentColor' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="13" cy="8" r="5" />
+    <path d="M4 20c0-4 4-7 9-7s9 3 9 7" />
+    <circle cx="11" cy="7.5" r="0.8" fill={color} stroke="none" />
+    <circle cx="14.5" cy="7.5" r="0.8" fill={color} stroke="none" />
+    <path d="M3 10l-2.5-2.5L3 5" strokeWidth="1.8" />
+    <line x1="0.5" y1="7.5" x2="7" y2="7.5" />
+  </svg>
+);
+
+const FaceRightIcon = ({ size = 24, color = 'currentColor' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="11" cy="8" r="5" />
+    <path d="M2 20c0-4 4-7 9-7s9 3 9 7" />
+    <circle cx="9.5" cy="7.5" r="0.8" fill={color} stroke="none" />
+    <circle cx="13" cy="7.5" r="0.8" fill={color} stroke="none" />
+    <path d="M21 10l2.5-2.5L21 5" strokeWidth="1.8" />
+    <line x1="23.5" y1="7.5" x2="17" y2="7.5" />
+  </svg>
+);
+
 const POSES = [
-  { id: 'front', label: 'หน้าตรง',  icon: '😐', hint: 'มองตรงเข้ากล้อง' },
-  { id: 'left',  label: 'หันซ้าย', icon: '👈', hint: 'หันหน้าไปทางซ้ายเล็กน้อย' },
-  { id: 'right', label: 'หันขวา',  icon: '👉', hint: 'หันหน้าไปทางขวาเล็กน้อย' },
+  { id: 'front', label: 'หน้าตรง',  Icon: FaceFrontIcon, hint: 'มองตรงเข้ากล้อง' },
+  { id: 'left',  label: 'หันซ้าย', Icon: FaceLeftIcon,  hint: 'หันหน้าไปทางซ้ายเล็กน้อย' },
+  { id: 'right', label: 'หันขวา',  Icon: FaceRightIcon, hint: 'หันหน้าไปทางขวาเล็กน้อย' },
 ];
 
 const CAPTURE_DELAY_MS = 600; // ms หลังเจอหน้าก่อน capture
@@ -271,11 +303,11 @@ export default function EnrollPage({ employees = [], initialEmployee = null, onD
       <div className="flex gap-2 mb-4 justify-center">
         {POSES.map((p, i) => (
           <div key={p.id}
-            className={`flex flex-col items-center gap-1 px-2 py-1.5 rounded-xl transition-all text-center
+            className={`flex flex-col items-center gap-1 px-3 py-2 rounded-xl transition-all text-center
               ${i < captured.length ? 'bg-green-100 text-green-600'
                 : i === poseIndex && !saving && !saved ? 'bg-[#7B8CFA] text-white scale-105'
                 : 'bg-slate-100 text-slate-400'}`}>
-            <span className="text-lg">{p.icon}</span>
+            <p.Icon size={22} color="currentColor" />
             <span className="text-xs font-medium whitespace-nowrap">{p.label}</span>
             {i < captured.length && <span className="text-xs font-bold">✓</span>}
           </div>
@@ -329,7 +361,7 @@ export default function EnrollPage({ employees = [], initialEmployee = null, onD
       {!saving && !saved && !saveError && (
         <div className={`text-center px-4 py-3 rounded-2xl w-full max-w-md
           ${faceFound ? 'bg-green-50 text-green-700' : 'bg-slate-50 text-slate-500'}`}>
-          <p className="text-2xl mb-1">{currentPose.icon}</p>
+          <div className="flex justify-center mb-1"><currentPose.Icon size={32} color="currentColor" /></div>
           <p className="font-bold text-lg">{currentPose.label}</p>
           <p className="text-sm">{currentPose.hint}</p>
           {!faceFound && <p className="text-sm mt-1 opacity-70">รอตรวจจับใบหน้า...</p>}
@@ -351,12 +383,15 @@ export default function EnrollPage({ employees = [], initialEmployee = null, onD
       {/* Captured thumbnails */}
       {captured.length > 0 && !saved && (
         <div className="flex gap-2 mt-4 justify-center">
-          {captured.map((_, i) => (
-            <div key={i}
-              className="w-10 h-10 rounded-full bg-green-100 border-2 border-green-400 flex items-center justify-center text-green-600 text-xs font-bold">
-              {POSES[i].icon}
-            </div>
-          ))}
+          {captured.map((_, i) => {
+            const P = POSES[i];
+            return (
+              <div key={i}
+                className="w-10 h-10 rounded-full bg-green-100 border-2 border-green-400 flex items-center justify-center text-green-600">
+                <P.Icon size={18} color="currentColor" />
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
