@@ -330,7 +330,8 @@ def get_status(empId: str):
 #  GET /api/logs?week=2026-14
 # ============================================================
 @app.get("/api/logs")
-def get_logs(week: Optional[str] = None, date: Optional[str] = None):
+def get_logs(week: Optional[str] = None, date: Optional[str] = None,
+             page: int = 1, page_size: int = 20):
     conn = get_db()
     cursor = conn.cursor()
 
@@ -357,8 +358,11 @@ def get_logs(week: Optional[str] = None, date: Optional[str] = None):
     rows = cursor.fetchall()
     conn.close()
 
-    logs = group_logs_to_daily(rows)
-    return {"logs": logs}
+    all_logs = group_logs_to_daily(rows)
+    total = len(all_logs)
+    start_i = (page - 1) * page_size
+    logs = all_logs[start_i: start_i + page_size]
+    return {"logs": logs, "total": total, "page": page, "page_size": page_size}
 
 # ============================================================
 #  GET /api/payroll?week=2026-14

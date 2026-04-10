@@ -165,6 +165,9 @@ export default function App() {
   const [pinError,     setPinError]     = useState(false);
   const [adminTab,     setAdminTab]     = useState('LOG');
   const [adminLogs,    setAdminLogs]    = useState([]);
+  const [logPage,      setLogPage]      = useState(1);
+  const [logTotal,     setLogTotal]     = useState(0);
+  const LOG_PAGE_SIZE = 20;
   const [adminPayroll, setAdminPayroll] = useState(null);
   const [adminLoading, setAdminLoading] = useState(false);
   const [adminError,   setAdminError]   = useState(null);
@@ -322,8 +325,10 @@ export default function App() {
     try {
       if (activeTab === 'LOG') {
         const week = api.getCurrentWeekStr();
-        const data = await api.getLogs({ week });
+        const data = await api.getLogs({ week, page: 1, page_size: LOG_PAGE_SIZE });
         setAdminLogs(data.logs || []);
+        setLogTotal(data.total || 0);
+        setLogPage(1);
       } else if (activeTab === 'PAYROLL') {
         const r = await api.getPayrollPeriods();
         setPayPeriods(r.periods || []);
@@ -339,6 +344,21 @@ export default function App() {
   const handleAdminTabChange = (tab) => {
     setAdminTab(tab);
     loadAdminData(tab);
+  };
+
+  const loadLogPage = async (page) => {
+    setAdminLoading(true);
+    try {
+      const week = api.getCurrentWeekStr();
+      const data = await api.getLogs({ week, page, page_size: LOG_PAGE_SIZE });
+      setAdminLogs(data.logs || []);
+      setLogTotal(data.total || 0);
+      setLogPage(page);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setAdminLoading(false);
+    }
   };
 
   const handleSubmitOT = async () => {
@@ -952,43 +972,73 @@ export default function App() {
       {adminLogs.length === 0 ? (
         <div className="flex-1 flex items-center justify-center text-slate-400 text-xl">ยังไม่มีข้อมูลในสัปดาห์นี้</div>
       ) : (
-        <div className="overflow-auto flex-1 rounded-2xl border border-slate-100">
-          <table className="w-full text-left border-collapse">
-            <thead className="bg-[#F8FAFC] text-slate-500 sticky top-0">
-              <tr>
-                <th className="p-4 font-bold border-b border-slate-100">วันที่</th>
-                <th className="p-4 font-bold border-b border-slate-100">รหัส</th>
-                <th className="p-4 font-bold border-b border-slate-100">ชื่อ-สกุล</th>
-                <th className="p-4 font-bold border-b border-slate-100 text-center">เข้างาน</th>
-                <th className="p-4 font-bold border-b border-slate-100 text-center">พักเที่ยง</th>
-                <th className="p-4 font-bold border-b border-slate-100 text-center">กลับพัก</th>
-                <th className="p-4 font-bold border-b border-slate-100 text-center">ออกงาน</th>
-                <th className="p-4 font-bold border-b border-slate-100 text-center">ชม.สุทธิ</th>
-                <th className="p-4 font-bold border-b border-slate-100 text-center">สถานะ</th>
-              </tr>
-            </thead>
-            <tbody>
-              {adminLogs.map((log, i) => (
-                <tr key={i} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
-                  <td className="p-4 text-slate-700">{log.date}</td>
-                  <td className="p-4 font-mono text-slate-500">{log.employeeId}</td>
-                  <td className="p-4 font-bold text-[#222222]">{log.name}</td>
-                  <td className="p-4 text-center font-mono">{log.in || '-'}</td>
-                  <td className="p-4 text-center font-mono text-slate-400">{log.breakOut || '-'}</td>
-                  <td className="p-4 text-center font-mono text-slate-400">{log.breakIn || '-'}</td>
-                  <td className="p-4 text-center font-mono">{log.out || '-'}</td>
-                  <td className="p-4 text-center font-bold text-[#7B8CFA]">{log.workedHours || '-'}</td>
-                  <td className="p-4 text-center">
-                    {log.status === 'complete'
-                      ? <span className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full text-sm font-bold">ข้อมูลครบ</span>
-                      : <span className="bg-amber-100 text-amber-700 px-3 py-1 rounded-full text-sm font-bold">ไม่ครบ</span>
-                    }
-                  </td>
+        <>
+          <div className="overflow-auto flex-1 rounded-2xl border border-slate-100">
+            <table className="w-full text-left border-collapse">
+              <thead className="bg-[#F8FAFC] text-slate-500 sticky top-0">
+                <tr>
+                  <th className="p-4 font-bold border-b border-slate-100">วันที่</th>
+                  <th className="p-4 font-bold border-b border-slate-100">รหัส</th>
+                  <th className="p-4 font-bold border-b border-slate-100">ชื่อ-สกุล</th>
+                  <th className="p-4 font-bold border-b border-slate-100 text-center">เข้างาน</th>
+                  <th className="p-4 font-bold border-b border-slate-100 text-center">พักเที่ยง</th>
+                  <th className="p-4 font-bold border-b border-slate-100 text-center">กลับพัก</th>
+                  <th className="p-4 font-bold border-b border-slate-100 text-center">ออกงาน</th>
+                  <th className="p-4 font-bold border-b border-slate-100 text-center">ชม.สุทธิ</th>
+                  <th className="p-4 font-bold border-b border-slate-100 text-center">สถานะ</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {adminLogs.map((log, i) => (
+                  <tr key={i} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                    <td className="p-4 text-slate-700">{log.date}</td>
+                    <td className="p-4 font-mono text-slate-500">{log.employeeId}</td>
+                    <td className="p-4 font-bold text-[#222222]">{log.name}</td>
+                    <td className="p-4 text-center font-mono">{log.in || '-'}</td>
+                    <td className="p-4 text-center font-mono text-slate-400">{log.breakOut || '-'}</td>
+                    <td className="p-4 text-center font-mono text-slate-400">{log.breakIn || '-'}</td>
+                    <td className="p-4 text-center font-mono">{log.out || '-'}</td>
+                    <td className="p-4 text-center font-bold text-[#7B8CFA]">{log.workedHours || '-'}</td>
+                    <td className="p-4 text-center">
+                      {log.status === 'complete'
+                        ? <span className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full text-sm font-bold">ข้อมูลครบ</span>
+                        : <span className="bg-amber-100 text-amber-700 px-3 py-1 rounded-full text-sm font-bold">ไม่ครบ</span>
+                      }
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination */}
+          {logTotal > LOG_PAGE_SIZE && (
+            <div className="flex items-center justify-between mt-4">
+              <p className="text-sm text-slate-400">
+                แสดง {(logPage - 1) * LOG_PAGE_SIZE + 1}–{Math.min(logPage * LOG_PAGE_SIZE, logTotal)} จาก {logTotal} รายการ
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => loadLogPage(logPage - 1)}
+                  disabled={logPage <= 1 || adminLoading}
+                  className="px-4 py-2 rounded-xl bg-slate-100 text-slate-600 font-bold disabled:opacity-40 cursor-pointer active:scale-95 transition-transform"
+                >
+                  ← ก่อนหน้า
+                </button>
+                <span className="text-sm font-bold text-[#222222] px-2">
+                  หน้า {logPage} / {Math.ceil(logTotal / LOG_PAGE_SIZE)}
+                </span>
+                <button
+                  onClick={() => loadLogPage(logPage + 1)}
+                  disabled={logPage >= Math.ceil(logTotal / LOG_PAGE_SIZE) || adminLoading}
+                  className="px-4 py-2 rounded-xl bg-slate-100 text-slate-600 font-bold disabled:opacity-40 cursor-pointer active:scale-95 transition-transform"
+                >
+                  ถัดไป →
+                </button>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </>
   );
