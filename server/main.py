@@ -781,7 +781,7 @@ def get_attendance_day(date: str):
 
     cursor.execute("""
         SELECT EmployeeId, SUM(Hours), AVG(OTRate)
-        FROM OTLogs WHERE LogDate = ?
+        FROM OTLogs WHERE DateWork = ?
         GROUP BY EmployeeId
     """, date)
     ot_map = {r[0]: {"hours": float(r[1]), "otRate": float(r[2])} for r in cursor.fetchall()}

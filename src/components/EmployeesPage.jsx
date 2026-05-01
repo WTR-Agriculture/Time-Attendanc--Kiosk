@@ -47,18 +47,10 @@ const AVATAR_COLORS = [
 export default function EmployeesPage({ employees, onBack, onRefresh }) {
   const [showAdd, setShowAdd]         = useState(false);
   const [newId, setNewId]             = useState('');
-  const [newName, setNewName]         = useState('');
-  const [newDept, setNewDept]         = useState('');
-  const [newRate, setNewRate]         = useState('');
-  const [newRateType, setNewRateType] = useState('daily');
   const [addSaving, setAddSaving]     = useState(false);
   const [addError, setAddError]       = useState(null);
 
   const [editEmp, setEditEmp]           = useState(null);
-  const [editName, setEditName]         = useState('');
-  const [editDept, setEditDept]         = useState('');
-  const [editRate, setEditRate]         = useState('');
-  const [editRateType, setEditRateType] = useState('daily');
   const [editSaving, setEditSaving]     = useState(false);
   const [editError, setEditError]       = useState(null);
 
@@ -75,32 +67,55 @@ export default function EmployeesPage({ employees, onBack, onRefresh }) {
 
   // ============================================================
   const openAdd = async () => {
-    setNewName(''); setNewDept(''); setNewRate(''); setNewRateType('daily'); setAddError(null);
+    setAddError(null);
     setNewId('กำลังโหลด...');
     setShowAdd(true);
     try { const r = await api.getNextEmployeeId(); setNewId(r.nextId); } catch { setNewId(''); }
   };
 
-  const handleAdd = async () => {
-    if (!newName.trim() || !newRate) return;
+  const handleAdd = async (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const name = formData.get('name');
+    const rate = formData.get('rate');
+    
+    if (!name?.trim() || !rate) return;
+    
     setAddSaving(true); setAddError(null);
     try {
-      await api.createEmployee({ employeeId: newId, name: newName.trim(), department: newDept, rate: parseFloat(newRate), rateType: newRateType });
+      await api.createEmployee({ 
+        employeeId: newId, 
+        name: name.trim(), 
+        department: formData.get('department'), 
+        rate: parseFloat(rate), 
+        rateType: formData.get('rateType') 
+      });
       setShowAdd(false); onRefresh();
     } catch (err) { setAddError(err.message || 'เพิ่มพนักงานไม่สำเร็จ'); }
     finally { setAddSaving(false); }
   };
 
   const openEdit = (emp) => {
-    setEditEmp(emp); setEditName(emp.name); setEditDept(emp.department || '');
-    setEditRate(String(emp.rate)); setEditRateType(emp.rateType || 'daily'); setEditError(null);
+    setEditError(null);
+    setEditEmp(emp);
   };
 
-  const handleEdit = async () => {
-    if (!editName.trim() || !editRate) return;
+  const handleEdit = async (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const name = formData.get('name');
+    const rate = formData.get('rate');
+
+    if (!name?.trim() || !rate) return;
+    
     setEditSaving(true); setEditError(null);
     try {
-      await api.updateEmployee(editEmp.employeeId, { name: editName.trim(), department: editDept, rate: parseFloat(editRate), rateType: editRateType });
+      await api.updateEmployee(editEmp.employeeId, { 
+        name: name.trim(), 
+        department: formData.get('department'), 
+        rate: parseFloat(rate), 
+        rateType: formData.get('rateType') 
+      });
       setEditEmp(null); onRefresh();
     } catch (err) { setEditError(err.message || 'แก้ไขไม่สำเร็จ'); }
     finally { setEditSaving(false); }
@@ -198,78 +213,80 @@ export default function EmployeesPage({ employees, onBack, onRefresh }) {
               <div className="flex items-center gap-2 flex-shrink-0">
                 <button onClick={() => openLogs(emp)} title="ประวัติการมาทำงาน"
                   className="w-9 h-9 rounded-xl bg-blue-50 text-blue-500 flex items-center justify-center cursor-pointer active:scale-95 transition-transform">
-                  <IconClock />
-                </button>
-                <button onClick={() => openPayHistory(emp)} title="ประวัติค่าแรง"
-                  className="w-9 h-9 rounded-xl bg-violet-50 text-violet-500 flex items-center justify-center cursor-pointer active:scale-95 transition-transform">
-                  <IconReceipt />
-                </button>
-                <button onClick={() => openEdit(emp)} title="แก้ไข"
-                  className="w-9 h-9 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center cursor-pointer active:scale-95 transition-transform">
-                  <IconEdit />
-                </button>
-                <button onClick={() => setDeleteEmp(emp)} title="ลบ"
-                  className="w-9 h-9 rounded-xl bg-red-50 text-red-500 flex items-center justify-center cursor-pointer active:scale-95 transition-transform">
-                  <IconTrash />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* ===================== Add Modal ===================== */}
-      {showAdd && (
-        <Modal onClose={() => setShowAdd(false)}>
-          <h2 className="text-xl font-bold text-[#222222]">เพิ่มพนักงานใหม่</h2>
-          <FieldRow label="รหัสพนักงาน">
-            <input value={newId} readOnly className={readonlyCls} />
-          </FieldRow>
-          <FieldRow label="ชื่อ-นามสกุล *">
-            <input value={newName} onChange={e => setNewName(e.target.value)}
-              placeholder="เช่น สมชาย ใจดี" className={inputCls} />
-          </FieldRow>
-          <FieldRow label="แผนก">
-            <select value={newDept} onChange={e => setNewDept(e.target.value)} className={inputCls}>
-              <option value="">-- เลือกแผนก --</option>
-              {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
-            </select>
-          </FieldRow>
-          <div className="grid grid-cols-2 gap-3">
-            <FieldRow label="ค่าแรง *">
-              <input type="number" value={newRate} onChange={e => setNewRate(e.target.value)}
-                placeholder="0" className={inputCls} />
+           form onSubmit={handleAdd} className="flex flex-col gap-4">
+            <h2 className="text-xl font-bold text-[#222222]">เพิ่มพนักงานใหม่</h2>
+            <FieldRow label="รหัสพนักงาน">
+              <input value={newId} readOnly className={readonlyCls} />
             </FieldRow>
-            <FieldRow label="ประเภท">
-              <select value={newRateType} onChange={e => setNewRateType(e.target.value)} className={inputCls}>
-                <option value="daily">รายวัน</option>
-                <option value="hourly">รายชั่วโมง</option>
+            <FieldRow label="ชื่อ-นามสกุล *">
+              <input name="name" required placeholder="เช่น สมชาย ใจดี" className={inputCls} />
+            </FieldRow>
+            <FieldRow label="แผนก">
+              <select name="department" className={inputCls}>
+                <option value="">-- เลือกแผนก --</option>
+                {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
               </select>
             </FieldRow>
-          </div>
-          {addError && <p className="text-red-500 text-sm">{addError}</p>}
-          <div className="flex gap-3 pt-1">
-            <button onClick={() => setShowAdd(false)} className="flex-1 bg-[#F2F2F2] text-slate-600 py-3 rounded-2xl font-medium cursor-pointer">ยกเลิก</button>
-            <button onClick={handleAdd} disabled={addSaving || !newName.trim() || !newRate}
-              className="flex-1 bg-[#7B8CFA] text-white py-3 rounded-2xl font-bold cursor-pointer disabled:opacity-50">
-              {addSaving ? 'กำลังบันทึก...' : 'บันทึก'}
-            </button>
-          </div>
+            <div className="grid grid-cols-2 gap-3">
+              <FieldRow label="ค่าแรง *">
+                <input name="rate" type="number" step="0.01" required placeholder="0" className={inputCls} />
+              </FieldRow>
+              <FieldRow label="ประเภท">
+                <select name="rateType" defaultValue="daily" className={inputCls}>
+                  <option value="daily">รายวัน</option>
+                  <option value="hourly">รายชั่วโมง</option>
+                </select>
+              </FieldRow>
+            </div>
+            {addError && <p className="text-red-500 text-sm">{addError}</p>}
+            <div className="flex gap-3 pt-1">
+              <button type="button" onClick={() => setShowAdd(false)} className="flex-1 bg-[#F2F2F2] text-slate-600 py-3 rounded-2xl font-medium cursor-pointer">ยกเลิก</button>
+              <button type="submit" disabled={addSaving}
+                className="flex-1 bg-[#7B8CFA] text-white py-3 rounded-2xl font-bold cursor-pointer disabled:opacity-50">
+                {addSaving ? 'กำลังบันทึก...' : 'บันทึก'}
+              </button>
+            </div>
+          </form>
         </Modal>
       )}
 
       {/* ===================== Edit Modal ===================== */}
       {editEmp && (
         <Modal onClose={() => setEditEmp(null)}>
-          <h2 className="text-xl font-bold text-[#222222]">แก้ไขข้อมูลพนักงาน</h2>
-          <FieldRow label="รหัสพนักงาน">
-            <input value={editEmp.employeeId} readOnly className={readonlyCls} />
-          </FieldRow>
-          <FieldRow label="ชื่อ-นามสกุล *">
-            <input value={editName} onChange={e => setEditName(e.target.value)} className={inputCls} />
-          </FieldRow>
-          <FieldRow label="แผนก">
-            <select value={editDept} onChange={e => setEditDept(e.target.value)} className={inputCls}>
+          <form onSubmit={handleEdit} className="flex flex-col gap-4">
+            <h2 className="text-xl font-bold text-[#222222]">แก้ไขข้อมูลพนักงาน</h2>
+            <FieldRow label="รหัสพนักงาน">
+              <input value={editEmp.employeeId} readOnly className={readonlyCls} />
+            </FieldRow>
+            <FieldRow label="ชื่อ-นามสกุล *">
+              <input name="name" defaultValue={editEmp.name} required className={inputCls} />
+            </FieldRow>
+            <FieldRow label="แผนก">
+              <select name="department" defaultValue={editEmp.department || ''} className={inputCls}>
+                <option value="">-- เลือกแผนก --</option>
+                {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </FieldRow>
+            <div className="grid grid-cols-2 gap-3">
+              <FieldRow label="ค่าแรง *">
+                <input name="rate" type="number" step="0.01" defaultValue={editEmp.rate} required className={inputCls} />
+              </FieldRow>
+              <FieldRow label="ประเภท">
+                <select name="rateType" defaultValue={editEmp.rateType || 'daily'} className={inputCls}>
+                  <option value="daily">รายวัน</option>
+                  <option value="hourly">รายชั่วโมง</option>
+                </select>
+              </FieldRow>
+            </div>
+            {editError && <p className="text-red-500 text-sm">{editError}</p>}
+            <div className="flex gap-3 pt-1">
+              <button type="button" onClick={() => setEditEmp(null)} className="flex-1 bg-[#F2F2F2] text-slate-600 py-3 rounded-2xl font-medium cursor-pointer">ยกเลิก</button>
+              <button type="submit" disabled={editSaving}
+                className="flex-1 bg-[#7B8CFA] text-white py-3 rounded-2xl font-bold cursor-pointer disabled:opacity-50">
+                {editSaving ? 'กำลังบันทึก...' : 'บันทึก'}
+              </button>
+            </div>
+          </formlect value={editDept} onChange={e => setEditDept(e.target.value)} className={inputCls}>
               <option value="">-- เลือกแผนก --</option>
               {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
             </select>
