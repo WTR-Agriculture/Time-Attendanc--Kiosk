@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import * as api from '../lib/api';
 
 const DEPARTMENTS = ['Office', 'Production'];
@@ -126,14 +127,15 @@ export default function EmployeesPage({ employees, onBack, onRefresh }) {
   // ============================================================
   //  Reusable Modal wrapper
   // ============================================================
-  const Modal = ({ children, onClose }) => (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 px-0 sm:px-4"
+  const Modal = ({ children, onClose }) => createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/40 px-0 sm:px-4"
       onClick={onClose}>
       <div className="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl shadow-xl p-6 flex flex-col gap-4 max-h-[90vh] overflow-y-auto"
         onClick={e => e.stopPropagation()}>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 
   // ============================================================
@@ -315,8 +317,8 @@ export default function EmployeesPage({ employees, onBack, onRefresh }) {
       )}
 
       {/* ===================== Attendance History ===================== */}
-      {logsEmp && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40"
+      {logsEmp && createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/40"
           onClick={() => setLogsEmp(null)}>
           <div className="bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl shadow-xl p-6 flex flex-col gap-4"
             style={{ maxHeight: '85vh' }} onClick={e => e.stopPropagation()}>
@@ -355,12 +357,13 @@ export default function EmployeesPage({ employees, onBack, onRefresh }) {
               </div>
             )}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* ===================== Payroll History ===================== */}
-      {payEmp && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40"
+      {payEmp && createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/40"
           onClick={() => setPayEmp(null)}>
           <div className="bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl shadow-xl p-6 flex flex-col gap-4"
             style={{ maxHeight: '85vh' }} onClick={e => e.stopPropagation()}>
@@ -400,7 +403,8 @@ export default function EmployeesPage({ employees, onBack, onRefresh }) {
               </div>
             )}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
