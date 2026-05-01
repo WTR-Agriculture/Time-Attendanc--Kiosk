@@ -391,12 +391,12 @@ def get_payroll(week: Optional[str] = None):
     cfg_rows = cursor.fetchall()
     rate_map = {r[0]: {"rate": float(r[1]), "rateType": r[2]} for r in cfg_rows}
 
-    # ดึง OT
+    # ดึง OT (weighted = Hours × OTRate เพื่อคำนวณค่า OT ที่ถูกต้อง)
     cursor.execute("""
-        SELECT EmployeeId, SUM(Hours) FROM OTLogs
+        SELECT EmployeeId, SUM(Hours), SUM(Hours * OTRate) FROM OTLogs
         WHERE DateWork BETWEEN ? AND ? GROUP BY EmployeeId
     """, start, end)
-    ot_map = {r[0]: float(r[1]) for r in cursor.fetchall()}
+    ot_map = {r[0]: {"hours": float(r[1]), "weighted": float(r[2])} for r in cursor.fetchall()}
 
     conn.close()
 
@@ -436,8 +436,9 @@ def get_payroll(week: Optional[str] = None):
         else:
             emp["total"] = round(emp["hours"] * emp["rate"], 2)
         emp["lateDeduction"] = round(emp["lateDeduction"], 2)
-        emp["otHours"]  = round(ot_map.get(emp["employeeId"], 0), 2)
-        emp["otAmount"] = round(emp["otHours"] * (emp["rate"] / 8), 2)
+        ot_entry = ot_map.get(emp["employeeId"], {"hours": 0, "weighted": 0})
+        emp["otHours"]  = round(ot_entry["hours"], 2)
+        emp["otAmount"] = round(ot_entry["weighted"] * (emp["rate"] / 8), 2)
         emp["netTotal"] = round(emp["total"] - emp["lateDeduction"] + emp["otAmount"], 2)
 
     payroll        = list(summary.values())
@@ -692,13 +693,14 @@ def create_payroll_period(body: CreatePayrollPeriodBody):
     """, body.startDate, body.endDate)
     ot_rows = cursor.fetchall()
 
-    # รวม OT ต่อคน
+    # รวม OT ต่อคน (weighted = Hours × OTRate)
     ot_map = {}
     for r in ot_rows:
-        emp_id, hrs, rate = r[0], float(r[1]), float(r[2])
+        emp_id, hrs, ot_rate = r[0], float(r[1]), float(r[2])
         if emp_id not in ot_map:
-            ot_map[emp_id] = {"hours": 0, "amount": 0}
-        ot_map[emp_id]["hours"] += hrs
+            ot_map[emp_id] = {"hours": 0, "weighted": 0}
+        ot_map[emp_id]["hours"]    += hrs
+        ot_map[emp_id]["weighted"] += hrs * ot_rate
 
     # คำนวณ payroll ต่อคน
     daily_logs = group_logs_to_daily(log_rows)
@@ -711,8 +713,8 @@ def create_payroll_period(body: CreatePayrollPeriodBody):
         name, dept, rate, rate_type = emp_data[1], emp_data[2], float(emp_data[3]), emp_data[4]
         hourly_rate = rate / 8
 
-        # กรอง logs ของคนนี้
-        emp_daily = [d for d in daily_logs.values() if d["employeeId"] == emp_id]
+        # กรอง logs ของคนนี้ (daily_logs เป็น list)
+        emp_daily = [d for d in daily_logs if d["employeeId"] == emp_id]
         work_days = len([d for d in emp_daily if d["in"] != "-"])
         base = rate * work_days if rate_type == "daily" else 0
 
@@ -722,9 +724,10 @@ def create_payroll_period(body: CreatePayrollPeriodBody):
             if d.get("lateMins", 0) > 0:
                 late_deduction += round(hourly_rate / 60 * d["lateMins"], 2)
 
-        # OT
-        ot_hours = ot_map.get(emp_id, {}).get("hours", 0)
-        ot_amount = round(hourly_rate * ot_hours, 2)
+        # OT (weighted คำนวณรวม OTRate แล้ว)
+        ot_entry  = ot_map.get(emp_id, {"hours": 0, "weighted": 0})
+        ot_hours  = ot_entry["hours"]
+        ot_amount = round(hourly_rate * ot_entry["weighted"], 2)
 
         net = round(base - late_deduction + ot_amount, 2)
         grand_total += net
