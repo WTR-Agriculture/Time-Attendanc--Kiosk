@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import * as api from './lib/api';
 import EmployeesPage from './components/EmployeesPage';
 
@@ -96,27 +96,68 @@ const formatMoney = (n) => Number(n || 0).toLocaleString('th-TH', { style: 'curr
 // ============================================================
 //  TimePicker — 24-hour dropdown (HH:MM)
 // ============================================================
-function TimePicker({ value, onChange, className = '' }) {
-  const [h, m] = value ? value.split(':') : ['', ''];
-  const hours   = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
-  const minutes = ['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55'];
+// ============================================================
+//  DrumScroll — one scrollable column for TimePicker
+// ============================================================
+function DrumScroll({ options, value, onChange }) {
+  const ref = useRef(null);
+  const timer = useRef(null);
+  const ITEM_H = 44;
 
-  const handleH = (hh) => { if (m) onChange(`${hh}:${m}`); else onChange(`${hh}:00`); };
-  const handleM = (mm) => { if (h) onChange(`${h}:${mm}`);  else onChange(`07:${mm}`); };
+  useEffect(() => {
+    const idx = options.indexOf(value);
+    if (ref.current && idx >= 0) {
+      ref.current.scrollTop = idx * ITEM_H;
+    }
+  }, [value, options]);
+
+  const onScroll = () => {
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      if (!ref.current) return;
+      const idx = Math.round(ref.current.scrollTop / ITEM_H);
+      const clamped = Math.max(0, Math.min(idx, options.length - 1));
+      ref.current.scrollTop = clamped * ITEM_H;
+      onChange(options[clamped]);
+    }, 120);
+  };
 
   return (
-    <div className={`flex items-center gap-1 bg-[#F8FAFC] border border-slate-200 rounded-2xl px-3 py-2.5 focus-within:border-[#7B8CFA] ${className}`}>
-      <select value={h || ''} onChange={e => handleH(e.target.value)}
-        className="bg-transparent text-base font-mono text-[#222222] outline-none cursor-pointer flex-1 text-center">
-        <option value="" disabled>ชม.</option>
-        {hours.map(hh => <option key={hh} value={hh}>{hh}</option>)}
-      </select>
-      <span className="text-slate-400 font-bold text-lg select-none">:</span>
-      <select value={m || ''} onChange={e => handleM(e.target.value)}
-        className="bg-transparent text-base font-mono text-[#222222] outline-none cursor-pointer flex-1 text-center">
-        <option value="" disabled>นาที</option>
-        {minutes.map(mm => <option key={mm} value={mm}>{mm}</option>)}
-      </select>
+    <div className="relative flex-1" style={{ height: ITEM_H * 3 }}>
+      {/* highlight bar */}
+      <div className="absolute inset-x-1 pointer-events-none rounded-xl"
+        style={{ top: ITEM_H, height: ITEM_H, background: 'rgba(123,140,250,0.12)', border: '1.5px solid rgba(123,140,250,0.25)' }} />
+      <div ref={ref} onScroll={onScroll}
+        className="h-full overflow-y-scroll"
+        style={{ scrollSnapType: 'y mandatory', scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+        <div style={{ height: ITEM_H }} />
+        {options.map(opt => (
+          <div key={opt} onClick={() => { const i = options.indexOf(opt); ref.current.scrollTop = i * ITEM_H; onChange(opt); }}
+            style={{ height: ITEM_H, scrollSnapAlign: 'center' }}
+            className={`flex items-center justify-center font-mono text-xl font-bold select-none cursor-pointer transition-colors
+              ${opt === value ? 'text-[#7B8CFA]' : 'text-slate-300'}`}>
+            {opt}
+          </div>
+        ))}
+        <div style={{ height: ITEM_H }} />
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+//  TimePicker — drum scroll 24-hour HH:MM
+// ============================================================
+function TimePicker({ value, onChange }) {
+  const HOURS   = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
+  const MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'));
+  const [h, m] = value ? value.split(':') : ['08', '00'];
+
+  return (
+    <div className="flex items-center gap-2 bg-[#F8FAFC] border border-slate-200 rounded-2xl px-3 py-1 overflow-hidden">
+      <DrumScroll options={HOURS}   value={h || '08'} onChange={hh => onChange(`${hh}:${m || '00'}`)} />
+      <span className="text-2xl font-bold text-slate-300 select-none pb-1">:</span>
+      <DrumScroll options={MINUTES} value={m || '00'} onChange={mm => onChange(`${h || '08'}:${mm}`)} />
     </div>
   );
 }
@@ -1031,7 +1072,7 @@ export default function App() {
     <div className="min-h-screen bg-[#F0F2F5] flex">
 
       {/* ============ SIDEBAR — desktop only ============ */}
-      <aside className="hidden md:flex w-56 bg-white border-r border-slate-100 flex-col shadow-sm flex-shrink-0">
+      <aside className="hidden md:flex w-56 bg-white border-r border-slate-100 flex-col shadow-sm flex-shrink-0 sticky top-0 h-screen overflow-y-auto">
         <div className="px-5 py-5 border-b border-slate-100">
           <p className="font-bold text-[#222222] text-base leading-tight">ระบบจัดการ<br />ค่าแรง</p>
           <p className="text-xs text-slate-400 mt-1 font-mono">{formatTime(currentTime)}</p>
@@ -1111,7 +1152,7 @@ export default function App() {
         </header>
 
         {/* Content */}
-        <main className="flex-1 overflow-y-auto">
+        <main className="flex-1">
           <div className="max-w-5xl mx-auto p-4 md:p-6">
             {activeTab === 'DASHBOARD'  && renderDashboard()}
             {activeTab === 'ATTENDANCE' && renderAttendance()}

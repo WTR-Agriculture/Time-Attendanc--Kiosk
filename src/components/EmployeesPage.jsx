@@ -1,6 +1,3 @@
-// ============================================================
-//  EmployeesPage — จัดการพนักงาน (CRUD + Enroll + History)
-// ============================================================
 import { useState } from 'react';
 import * as api from '../lib/api';
 
@@ -35,8 +32,18 @@ function formatMoney(n) {
   return '฿' + Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-export default function EmployeesPage({ employees, onBack, onEnroll, onRefresh }) {
-  // --- Add ---
+function getInitials(name = '') {
+  const parts = name.trim().split(' ');
+  if (parts.length >= 2) return parts[0][0] + parts[1][0];
+  return name.slice(0, 2);
+}
+
+const AVATAR_COLORS = [
+  'bg-[#7B8CFA] text-white', 'bg-[#10B981] text-white', 'bg-[#F59E0B] text-white',
+  'bg-[#6366F1] text-white', 'bg-[#EC4899] text-white', 'bg-[#14B8A6] text-white',
+];
+
+export default function EmployeesPage({ employees, onBack, onRefresh }) {
   const [showAdd, setShowAdd]         = useState(false);
   const [newId, setNewId]             = useState('');
   const [newName, setNewName]         = useState('');
@@ -46,31 +53,25 @@ export default function EmployeesPage({ employees, onBack, onEnroll, onRefresh }
   const [addSaving, setAddSaving]     = useState(false);
   const [addError, setAddError]       = useState(null);
 
-  // --- Edit ---
-  const [editEmp, setEditEmp]             = useState(null);
-  const [editName, setEditName]           = useState('');
-  const [editDept, setEditDept]           = useState('');
-  const [editRate, setEditRate]           = useState('');
-  const [editRateType, setEditRateType]   = useState('daily');
-  const [editSaving, setEditSaving]       = useState(false);
-  const [editError, setEditError]         = useState(null);
+  const [editEmp, setEditEmp]           = useState(null);
+  const [editName, setEditName]         = useState('');
+  const [editDept, setEditDept]         = useState('');
+  const [editRate, setEditRate]         = useState('');
+  const [editRateType, setEditRateType] = useState('daily');
+  const [editSaving, setEditSaving]     = useState(false);
+  const [editError, setEditError]       = useState(null);
 
-  // --- Delete ---
   const [deleteEmp, setDeleteEmp] = useState(null);
   const [deleting, setDeleting]   = useState(false);
 
-  // --- Attendance history ---
-  const [logsEmp, setLogsEmp]     = useState(null);
-  const [logsData, setLogsData]   = useState([]);
+  const [logsEmp, setLogsEmp]         = useState(null);
+  const [logsData, setLogsData]       = useState([]);
   const [logsLoading, setLogsLoading] = useState(false);
 
-  // --- Payroll history ---
-  const [payEmp, setPayEmp]       = useState(null);
-  const [payData, setPayData]     = useState([]);
+  const [payEmp, setPayEmp]         = useState(null);
+  const [payData, setPayData]       = useState([]);
   const [payLoading, setPayLoading] = useState(false);
 
-  // ============================================================
-  //  Handlers
   // ============================================================
   const openAdd = async () => {
     setNewName(''); setNewDept(''); setNewRate(''); setNewRateType('daily'); setAddError(null);
@@ -123,326 +124,275 @@ export default function EmployeesPage({ employees, onBack, onEnroll, onRefresh }
   };
 
   // ============================================================
+  //  Reusable Modal wrapper
+  // ============================================================
+  const Modal = ({ children, onClose }) => (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 px-0 sm:px-4"
+      onClick={onClose}>
+      <div className="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl shadow-xl p-6 flex flex-col gap-4 max-h-[90vh] overflow-y-auto"
+        onClick={e => e.stopPropagation()}>
+        {children}
+      </div>
+    </div>
+  );
+
+  // ============================================================
+  //  Form fields reused in Add/Edit
+  // ============================================================
+  const FieldRow = ({ label, children }) => (
+    <div className="flex flex-col gap-1.5">
+      <label className="text-sm font-medium text-slate-500">{label}</label>
+      {children}
+    </div>
+  );
+  const inputCls = "w-full border border-slate-200 rounded-2xl px-4 py-3 text-base outline-none focus:border-[#7B8CFA] bg-white";
+  const readonlyCls = "w-full border border-slate-200 rounded-2xl px-4 py-3 text-base bg-[#F8FAFC] text-slate-400 cursor-default";
+
+  // ============================================================
   //  Render
   // ============================================================
   return (
-    <div className="flex flex-col w-full self-stretch px-6 pt-4 pb-6 animate-fade-in">
+    <div className="flex flex-col gap-4 animate-fade-in">
+
       {/* Header */}
-      <div className="bg-white rounded-3xl shadow-sm mb-4 w-full border border-slate-100">
-        <div className="flex justify-between items-center px-5 py-4">
-          <div className="flex items-center gap-3">
-            <button onClick={onBack} className="bg-[#F2F2F2] p-2 rounded-full cursor-pointer">
-              <svg className="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" />
-              </svg>
-            </button>
-            <h1 className="text-xl font-bold text-[#222222]">พนักงาน</h1>
-            <span className="bg-slate-100 text-slate-500 text-sm px-3 py-1 rounded-full">{employees.length} คน</span>
-          </div>
-          <button onClick={openAdd}
-            className="bg-[#7B8CFA] text-white px-4 py-2 rounded-full text-base font-medium flex items-center gap-1.5 cursor-pointer">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
-            </svg>
-            เพิ่มพนักงาน
-          </button>
+      <div className="flex justify-between items-center">
+        <div>
+          <h2 className="text-2xl font-bold text-[#222222]">พนักงาน</h2>
+          <p className="text-slate-400 text-sm mt-0.5">ทั้งหมด {employees.length} คน</p>
         </div>
+        <button onClick={openAdd}
+          className="bg-[#7B8CFA] text-white px-4 py-2.5 rounded-2xl text-sm font-bold flex items-center gap-1.5 cursor-pointer active:scale-95 transition-transform">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
+          </svg>
+          เพิ่มพนักงาน
+        </button>
       </div>
 
-      {/* Table */}
-      <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden flex-1">
-        {employees.length === 0 ? (
-          <div className="flex items-center justify-center h-48 text-slate-400">ยังไม่มีพนักงาน</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-[#F8FAFC] border-b border-slate-100">
-                  <th className="text-left px-4 py-3 font-semibold text-slate-500">รหัส</th>
-                  <th className="text-left px-4 py-3 font-semibold text-slate-500">ชื่อ-นามสกุล</th>
-                  <th className="text-left px-4 py-3 font-semibold text-slate-500">แผนก</th>
-                  <th className="text-right px-4 py-3 font-semibold text-slate-500">ค่าแรง</th>
-                  <th className="text-center px-4 py-3 font-semibold text-slate-500">ใบหน้า</th>
-                  <th className="text-center px-4 py-3 font-semibold text-slate-500">ประวัติมาทำงาน</th>
-                  <th className="text-center px-4 py-3 font-semibold text-slate-500">ประวัติค่าแรง</th>
-                  <th className="text-center px-4 py-3 font-semibold text-slate-500">จัดการ</th>
-                </tr>
-              </thead>
-              <tbody>
-                {employees.map((emp, i) => (
-                  <tr key={emp.employeeId} className={`border-b border-slate-50 ${i % 2 === 0 ? '' : 'bg-[#FAFAFA]'}`}>
-                    <td className="px-4 py-3 text-slate-500 font-mono">{emp.employeeId}</td>
-                    <td className="px-4 py-3 font-medium text-[#222222]">{emp.name}</td>
-                    <td className="px-4 py-3 text-slate-500">{emp.department || '-'}</td>
-                    <td className="px-4 py-3 text-right text-slate-700">
-                      {emp.rate.toLocaleString()} {emp.rateType === 'daily' ? 'บ./วัน' : 'บ./ชม.'}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      {emp.faceDescriptorJson
-                        ? <span className="text-green-500 font-bold">✓</span>
-                        : <span className="text-slate-300">–</span>}
-                    </td>
-                    {/* ประวัติมาทำงาน */}
-                    <td className="px-4 py-3 text-center">
-                      <button onClick={() => openLogs(emp)}
-                        title="ประวัติการมาทำงาน"
-                        className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-blue-50 text-blue-500 hover:bg-blue-100 transition-colors cursor-pointer">
-                        <IconClock />
-                      </button>
-                    </td>
-                    {/* ประวัติค่าแรง */}
-                    <td className="px-4 py-3 text-center">
-                      <button onClick={() => openPayHistory(emp)}
-                        title="ประวัติค่าแรง"
-                        className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-violet-50 text-violet-500 hover:bg-violet-100 transition-colors cursor-pointer">
-                        <IconReceipt />
-                      </button>
-                    </td>
-                    {/* จัดการ */}
-                    <td className="px-4 py-3">
-                      <div className="flex items-center justify-center gap-1.5">
-                        <button onClick={() => onEnroll(emp)} title="ลงทะเบียนใบหน้า"
-                          className="bg-[#C6F45D] text-[#222222] text-xs font-bold px-3 py-1.5 rounded-full cursor-pointer whitespace-nowrap">
-                          ลงทะเบียน
-                        </button>
-                        <button onClick={() => openEdit(emp)} title="แก้ไข"
-                          className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors cursor-pointer">
-                          <IconEdit />
-                        </button>
-                        <button onClick={() => setDeleteEmp(emp)} title="ลบ"
-                          className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-red-50 text-red-500 hover:bg-red-100 transition-colors cursor-pointer">
-                          <IconTrash />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+      {/* Employee cards */}
+      {employees.length === 0 ? (
+        <div className="bg-white rounded-3xl border border-slate-100 py-16 text-center text-slate-400">
+          ยังไม่มีพนักงาน
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {employees.map((emp, i) => (
+            <div key={emp.employeeId}
+              className="bg-white rounded-3xl border border-slate-100 shadow-sm px-5 py-4 flex items-center gap-4">
+              {/* Avatar */}
+              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-bold text-base flex-shrink-0 ${AVATAR_COLORS[i % AVATAR_COLORS.length]}`}>
+                {getInitials(emp.name)}
+              </div>
 
-      {/* ============================================================ */}
-      {/* Add Modal */}
-      {/* ============================================================ */}
+              {/* Info */}
+              <div className="flex-1 min-w-0">
+                <p className="font-bold text-[#222222] truncate">{emp.name}</p>
+                <p className="text-sm text-slate-400 mt-0.5">
+                  {emp.department || 'ไม่ระบุแผนก'} · {emp.rate.toLocaleString()} {emp.rateType === 'daily' ? 'บ./วัน' : 'บ./ชม.'}
+                </p>
+              </div>
+
+              {/* Actions */}
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <button onClick={() => openLogs(emp)} title="ประวัติการมาทำงาน"
+                  className="w-9 h-9 rounded-xl bg-blue-50 text-blue-500 flex items-center justify-center cursor-pointer active:scale-95 transition-transform">
+                  <IconClock />
+                </button>
+                <button onClick={() => openPayHistory(emp)} title="ประวัติค่าแรง"
+                  className="w-9 h-9 rounded-xl bg-violet-50 text-violet-500 flex items-center justify-center cursor-pointer active:scale-95 transition-transform">
+                  <IconReceipt />
+                </button>
+                <button onClick={() => openEdit(emp)} title="แก้ไข"
+                  className="w-9 h-9 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center cursor-pointer active:scale-95 transition-transform">
+                  <IconEdit />
+                </button>
+                <button onClick={() => setDeleteEmp(emp)} title="ลบ"
+                  className="w-9 h-9 rounded-xl bg-red-50 text-red-500 flex items-center justify-center cursor-pointer active:scale-95 transition-transform">
+                  <IconTrash />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ===================== Add Modal ===================== */}
       {showAdd && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-          <div className="bg-white rounded-3xl shadow-xl w-full max-w-md p-6 flex flex-col gap-4">
-            <h2 className="text-xl font-bold text-[#222222]">เพิ่มพนักงานใหม่</h2>
-            <div className="flex flex-col gap-3">
-              <div>
-                <label className="text-sm font-medium text-slate-500 mb-1 block">รหัสพนักงาน</label>
-                <input value={newId} readOnly className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-base bg-[#F8FAFC] text-slate-500 cursor-default" />
-              </div>
-              <div>
-                <label className="text-sm font-medium text-slate-500 mb-1 block">ชื่อ-นามสกุล *</label>
-                <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="เช่น สมชาย ใจดี"
-                  className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-base outline-none focus:border-[#7B8CFA]" />
-              </div>
-              <div>
-                <label className="text-sm font-medium text-slate-500 mb-1 block">แผนก</label>
-                <select value={newDept} onChange={e => setNewDept(e.target.value)}
-                  className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-base outline-none focus:border-[#7B8CFA] bg-white">
-                  <option value="">-- เลือกแผนก --</option>
-                  {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
-                </select>
-              </div>
-              <div className="flex gap-3">
-                <div className="flex-1">
-                  <label className="text-sm font-medium text-slate-500 mb-1 block">ค่าแรง *</label>
-                  <input type="number" value={newRate} onChange={e => setNewRate(e.target.value)} placeholder="0"
-                    className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-base outline-none focus:border-[#7B8CFA]" />
-                </div>
-                <div className="flex-1">
-                  <label className="text-sm font-medium text-slate-500 mb-1 block">ประเภท</label>
-                  <select value={newRateType} onChange={e => setNewRateType(e.target.value)}
-                    className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-base outline-none bg-white">
-                    <option value="daily">รายวัน</option>
-                    <option value="hourly">รายชั่วโมง</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-            {addError && <p className="text-red-500 text-sm">{addError}</p>}
-            <div className="flex gap-3">
-              <button onClick={() => setShowAdd(false)} className="flex-1 bg-[#F2F2F2] text-slate-600 py-3 rounded-full font-medium cursor-pointer">ยกเลิก</button>
-              <button onClick={handleAdd} disabled={addSaving || !newName.trim() || !newRate}
-                className="flex-1 bg-[#7B8CFA] text-white py-3 rounded-full font-bold cursor-pointer disabled:opacity-50">
-                {addSaving ? 'กำลังบันทึก...' : 'บันทึก'}
-              </button>
-            </div>
+        <Modal onClose={() => setShowAdd(false)}>
+          <h2 className="text-xl font-bold text-[#222222]">เพิ่มพนักงานใหม่</h2>
+          <FieldRow label="รหัสพนักงาน">
+            <input value={newId} readOnly className={readonlyCls} />
+          </FieldRow>
+          <FieldRow label="ชื่อ-นามสกุล *">
+            <input value={newName} onChange={e => setNewName(e.target.value)}
+              placeholder="เช่น สมชาย ใจดี" className={inputCls} />
+          </FieldRow>
+          <FieldRow label="แผนก">
+            <select value={newDept} onChange={e => setNewDept(e.target.value)} className={inputCls}>
+              <option value="">-- เลือกแผนก --</option>
+              {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </FieldRow>
+          <div className="grid grid-cols-2 gap-3">
+            <FieldRow label="ค่าแรง *">
+              <input type="number" value={newRate} onChange={e => setNewRate(e.target.value)}
+                placeholder="0" className={inputCls} />
+            </FieldRow>
+            <FieldRow label="ประเภท">
+              <select value={newRateType} onChange={e => setNewRateType(e.target.value)} className={inputCls}>
+                <option value="daily">รายวัน</option>
+                <option value="hourly">รายชั่วโมง</option>
+              </select>
+            </FieldRow>
           </div>
-        </div>
+          {addError && <p className="text-red-500 text-sm">{addError}</p>}
+          <div className="flex gap-3 pt-1">
+            <button onClick={() => setShowAdd(false)} className="flex-1 bg-[#F2F2F2] text-slate-600 py-3 rounded-2xl font-medium cursor-pointer">ยกเลิก</button>
+            <button onClick={handleAdd} disabled={addSaving || !newName.trim() || !newRate}
+              className="flex-1 bg-[#7B8CFA] text-white py-3 rounded-2xl font-bold cursor-pointer disabled:opacity-50">
+              {addSaving ? 'กำลังบันทึก...' : 'บันทึก'}
+            </button>
+          </div>
+        </Modal>
       )}
 
-      {/* ============================================================ */}
-      {/* Edit Modal */}
-      {/* ============================================================ */}
+      {/* ===================== Edit Modal ===================== */}
       {editEmp && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-          <div className="bg-white rounded-3xl shadow-xl w-full max-w-md p-6 flex flex-col gap-4">
-            <h2 className="text-xl font-bold text-[#222222]">แก้ไขข้อมูลพนักงาน</h2>
-            <div className="flex flex-col gap-3">
-              <div>
-                <label className="text-sm font-medium text-slate-500 mb-1 block">รหัสพนักงาน</label>
-                <input value={editEmp.employeeId} readOnly className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-base bg-[#F8FAFC] text-slate-500 cursor-default" />
-              </div>
-              <div>
-                <label className="text-sm font-medium text-slate-500 mb-1 block">ชื่อ-นามสกุล *</label>
-                <input value={editName} onChange={e => setEditName(e.target.value)}
-                  className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-base outline-none focus:border-[#7B8CFA]" />
-              </div>
-              <div>
-                <label className="text-sm font-medium text-slate-500 mb-1 block">แผนก</label>
-                <select value={editDept} onChange={e => setEditDept(e.target.value)}
-                  className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-base outline-none focus:border-[#7B8CFA] bg-white">
-                  <option value="">-- เลือกแผนก --</option>
-                  {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
-                </select>
-              </div>
-              <div className="flex gap-3">
-                <div className="flex-1">
-                  <label className="text-sm font-medium text-slate-500 mb-1 block">ค่าแรง *</label>
-                  <input type="number" value={editRate} onChange={e => setEditRate(e.target.value)}
-                    className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-base outline-none focus:border-[#7B8CFA]" />
-                </div>
-                <div className="flex-1">
-                  <label className="text-sm font-medium text-slate-500 mb-1 block">ประเภท</label>
-                  <select value={editRateType} onChange={e => setEditRateType(e.target.value)}
-                    className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-base outline-none bg-white">
-                    <option value="daily">รายวัน</option>
-                    <option value="hourly">รายชั่วโมง</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-            {editError && <p className="text-red-500 text-sm">{editError}</p>}
-            <div className="flex gap-3">
-              <button onClick={() => setEditEmp(null)} className="flex-1 bg-[#F2F2F2] text-slate-600 py-3 rounded-full font-medium cursor-pointer">ยกเลิก</button>
-              <button onClick={handleEdit} disabled={editSaving || !editName.trim() || !editRate}
-                className="flex-1 bg-[#7B8CFA] text-white py-3 rounded-full font-bold cursor-pointer disabled:opacity-50">
-                {editSaving ? 'กำลังบันทึก...' : 'บันทึก'}
-              </button>
-            </div>
+        <Modal onClose={() => setEditEmp(null)}>
+          <h2 className="text-xl font-bold text-[#222222]">แก้ไขข้อมูลพนักงาน</h2>
+          <FieldRow label="รหัสพนักงาน">
+            <input value={editEmp.employeeId} readOnly className={readonlyCls} />
+          </FieldRow>
+          <FieldRow label="ชื่อ-นามสกุล *">
+            <input value={editName} onChange={e => setEditName(e.target.value)} className={inputCls} />
+          </FieldRow>
+          <FieldRow label="แผนก">
+            <select value={editDept} onChange={e => setEditDept(e.target.value)} className={inputCls}>
+              <option value="">-- เลือกแผนก --</option>
+              {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </FieldRow>
+          <div className="grid grid-cols-2 gap-3">
+            <FieldRow label="ค่าแรง *">
+              <input type="number" value={editRate} onChange={e => setEditRate(e.target.value)} className={inputCls} />
+            </FieldRow>
+            <FieldRow label="ประเภท">
+              <select value={editRateType} onChange={e => setEditRateType(e.target.value)} className={inputCls}>
+                <option value="daily">รายวัน</option>
+                <option value="hourly">รายชั่วโมง</option>
+              </select>
+            </FieldRow>
           </div>
-        </div>
+          {editError && <p className="text-red-500 text-sm">{editError}</p>}
+          <div className="flex gap-3 pt-1">
+            <button onClick={() => setEditEmp(null)} className="flex-1 bg-[#F2F2F2] text-slate-600 py-3 rounded-2xl font-medium cursor-pointer">ยกเลิก</button>
+            <button onClick={handleEdit} disabled={editSaving || !editName.trim() || !editRate}
+              className="flex-1 bg-[#7B8CFA] text-white py-3 rounded-2xl font-bold cursor-pointer disabled:opacity-50">
+              {editSaving ? 'กำลังบันทึก...' : 'บันทึก'}
+            </button>
+          </div>
+        </Modal>
       )}
 
-      {/* ============================================================ */}
-      {/* Delete Confirm */}
-      {/* ============================================================ */}
+      {/* ===================== Delete Confirm ===================== */}
       {deleteEmp && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-          <div className="bg-white rounded-3xl shadow-xl w-full max-w-sm p-6 flex flex-col gap-4 text-center">
+        <Modal onClose={() => setDeleteEmp(null)}>
+          <div className="text-center flex flex-col gap-3">
             <div className="w-14 h-14 bg-red-50 rounded-full flex items-center justify-center mx-auto text-red-500">
               <IconTrash />
             </div>
             <h2 className="text-xl font-bold text-[#222222]">ลบพนักงาน?</h2>
-            <p className="text-slate-500">{deleteEmp.name} ({deleteEmp.employeeId})<br/>จะถูกปิดใช้งาน ข้อมูลยังคงอยู่ใน DB</p>
-            <div className="flex gap-3">
-              <button onClick={() => setDeleteEmp(null)} className="flex-1 bg-[#F2F2F2] text-slate-600 py-3 rounded-full font-medium cursor-pointer">ยกเลิก</button>
+            <p className="text-slate-500">{deleteEmp.name} ({deleteEmp.employeeId})<br />ข้อมูลยังคงอยู่ใน DB</p>
+            <div className="flex gap-3 pt-1">
+              <button onClick={() => setDeleteEmp(null)} className="flex-1 bg-[#F2F2F2] text-slate-600 py-3 rounded-2xl font-medium cursor-pointer">ยกเลิก</button>
               <button onClick={handleDelete} disabled={deleting}
-                className="flex-1 bg-red-500 text-white py-3 rounded-full font-bold cursor-pointer disabled:opacity-50">
+                className="flex-1 bg-red-500 text-white py-3 rounded-2xl font-bold cursor-pointer disabled:opacity-50">
                 {deleting ? 'กำลังลบ...' : 'ยืนยันลบ'}
               </button>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
 
-      {/* ============================================================ */}
-      {/* Attendance History Modal */}
-      {/* ============================================================ */}
+      {/* ===================== Attendance History ===================== */}
       {logsEmp && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-          <div className="bg-white rounded-3xl shadow-xl w-full max-w-lg p-6 flex flex-col gap-4 max-h-[80vh]">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40"
+          onClick={() => setLogsEmp(null)}>
+          <div className="bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl shadow-xl p-6 flex flex-col gap-4"
+            style={{ maxHeight: '85vh' }} onClick={e => e.stopPropagation()}>
             <div className="flex justify-between items-center">
               <div>
-                <h2 className="text-xl font-bold text-[#222222]">ประวัติการมาทำงาน</h2>
-                <p className="text-slate-400 text-sm">{logsEmp.name} · {logsEmp.employeeId}</p>
+                <h2 className="text-lg font-bold text-[#222222]">ประวัติการมาทำงาน</h2>
+                <p className="text-slate-400 text-sm">{logsEmp.name}</p>
               </div>
-              <button onClick={() => setLogsEmp(null)}
-                className="bg-[#F2F2F2] p-2 rounded-full cursor-pointer text-slate-500">✕</button>
+              <button onClick={() => setLogsEmp(null)} className="bg-[#F2F2F2] p-2 rounded-full cursor-pointer text-slate-500 text-sm">✕</button>
             </div>
-
             {logsLoading ? (
-              <div className="flex justify-center py-8 text-slate-400">กำลังโหลด...</div>
+              <div className="flex justify-center py-8 text-slate-400 text-sm">กำลังโหลด...</div>
             ) : logsData.length === 0 ? (
-              <div className="text-center py-8 text-slate-400">ยังไม่มีประวัติ</div>
+              <div className="text-center py-8 text-slate-400 text-sm">ยังไม่มีประวัติ</div>
             ) : (
-              <div className="overflow-y-auto flex-1 rounded-xl border border-slate-100">
-                <table className="w-full text-sm">
-                  <thead className="bg-[#F8FAFC] sticky top-0">
-                    <tr>
-                      <th className="text-left px-4 py-2.5 font-semibold text-slate-500">วันที่</th>
-                      <th className="text-center px-4 py-2.5 font-semibold text-slate-500">เข้า</th>
-                      <th className="text-center px-4 py-2.5 font-semibold text-slate-500">พักเที่ยง</th>
-                      <th className="text-center px-4 py-2.5 font-semibold text-slate-500">กลับ</th>
-                      <th className="text-center px-4 py-2.5 font-semibold text-slate-500">ออก</th>
-                      <th className="text-center px-4 py-2.5 font-semibold text-red-400">มาสาย</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {logsData.map((log, i) => (
-                      <tr key={i} className="border-t border-slate-50">
-                        <td className="px-4 py-2.5 font-medium text-slate-700">{log.date}</td>
-                        <td className="px-4 py-2.5 text-center text-slate-600">{log.in !== '-' ? log.in : <span className="text-slate-300">–</span>}</td>
-                        <td className="px-4 py-2.5 text-center text-slate-600">{log.breakOut !== '-' ? log.breakOut : <span className="text-slate-300">–</span>}</td>
-                        <td className="px-4 py-2.5 text-center text-slate-600">{log.breakIn !== '-' ? log.breakIn : <span className="text-slate-300">–</span>}</td>
-                        <td className="px-4 py-2.5 text-center text-slate-600">{log.out !== '-' ? log.out : <span className="text-slate-300">–</span>}</td>
-                        <td className="px-4 py-2.5 text-center">
-                          {log.lateMins > 0
-                            ? <span className="text-red-500 font-medium">{log.lateMins} นาที</span>
-                            : <span className="text-slate-300">–</span>}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="overflow-y-auto flex flex-col gap-2">
+                {logsData.map((log, i) => (
+                  <div key={i} className="border border-slate-100 rounded-2xl px-4 py-3 flex items-center justify-between gap-3">
+                    <div>
+                      <p className="font-medium text-slate-700 text-sm">{log.date}</p>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        เข้า {log.in || '–'} · ออก {log.out || '–'}
+                      </p>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      {log.workedHours
+                        ? <p className="font-bold text-[#7B8CFA] text-sm">{log.workedHours} ชม.</p>
+                        : <p className="text-slate-300 text-sm">–</p>
+                      }
+                      {log.lateMins > 0 &&
+                        <p className="text-red-400 text-xs">มาสาย {log.lateMins} นาที</p>
+                      }
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
         </div>
       )}
 
-      {/* ============================================================ */}
-      {/* Payroll History Modal */}
-      {/* ============================================================ */}
+      {/* ===================== Payroll History ===================== */}
       {payEmp && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-          <div className="bg-white rounded-3xl shadow-xl w-full max-w-lg p-6 flex flex-col gap-4 max-h-[80vh]">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40"
+          onClick={() => setPayEmp(null)}>
+          <div className="bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl shadow-xl p-6 flex flex-col gap-4"
+            style={{ maxHeight: '85vh' }} onClick={e => e.stopPropagation()}>
             <div className="flex justify-between items-center">
               <div>
-                <h2 className="text-xl font-bold text-[#222222]">ประวัติค่าแรง</h2>
-                <p className="text-slate-400 text-sm">{payEmp.name} · {payEmp.employeeId}</p>
+                <h2 className="text-lg font-bold text-[#222222]">ประวัติค่าแรง</h2>
+                <p className="text-slate-400 text-sm">{payEmp.name}</p>
               </div>
-              <button onClick={() => setPayEmp(null)}
-                className="bg-[#F2F2F2] p-2 rounded-full cursor-pointer text-slate-500">✕</button>
+              <button onClick={() => setPayEmp(null)} className="bg-[#F2F2F2] p-2 rounded-full cursor-pointer text-slate-500 text-sm">✕</button>
             </div>
-
             {payLoading ? (
-              <div className="flex justify-center py-8 text-slate-400">กำลังโหลด...</div>
+              <div className="flex justify-center py-8 text-slate-400 text-sm">กำลังโหลด...</div>
             ) : payData.length === 0 ? (
-              <div className="text-center py-8 text-slate-400">ยังไม่มีประวัติ</div>
+              <div className="text-center py-8 text-slate-400 text-sm">ยังไม่มีประวัติ</div>
             ) : (
-              <div className="overflow-y-auto flex-1 flex flex-col gap-2">
+              <div className="overflow-y-auto flex flex-col gap-2">
                 {payData.map((p, i) => (
-                  <div key={i} className="border border-slate-100 rounded-2xl px-4 py-3 flex flex-col gap-1">
+                  <div key={i} className="border border-slate-100 rounded-2xl px-4 py-3 flex flex-col gap-1.5">
                     <div className="flex justify-between items-center">
                       <span className="font-medium text-slate-700 text-sm">{p.startDate} — {p.endDate}</span>
                       <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${p.status === 'Paid' ? 'bg-green-100 text-green-600' : 'bg-amber-100 text-amber-600'}`}>
                         {p.status === 'Paid' ? 'จ่ายแล้ว' : 'รอจ่าย'}
                       </span>
                     </div>
-                    <div className="flex gap-4 text-xs text-slate-500 mt-1">
+                    <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-slate-400">
                       <span>ทำงาน {p.workDays} วัน</span>
                       <span>ค่าแรง {formatMoney(p.baseAmount)}</span>
                       {p.lateDeduction > 0 && <span className="text-red-400">หัก {formatMoney(p.lateDeduction)}</span>}
                       {p.otHours > 0 && <span className="text-emerald-500">OT +{p.otHours}ชม.</span>}
                     </div>
-                    <div className="flex justify-between items-center mt-1">
-                      <span className="text-xs text-slate-400">{p.paidAt ? `จ่ายเมื่อ ${p.paidAt.slice(0, 10)}` : ''}</span>
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-slate-300">{p.paidAt ? `จ่ายเมื่อ ${p.paidAt.slice(0, 10)}` : ''}</span>
                       <span className="font-bold text-[#7B8CFA]">{formatMoney(p.netTotal)}</span>
                     </div>
                   </div>
