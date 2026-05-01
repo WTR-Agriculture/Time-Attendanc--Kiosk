@@ -93,6 +93,34 @@ const formatMoney = (n) => Number(n || 0).toLocaleString('th-TH', { style: 'curr
 // ============================================================
 //  Main App
 // ============================================================
+// ============================================================
+//  TimePicker — 24-hour dropdown (HH:MM)
+// ============================================================
+function TimePicker({ value, onChange, className = '' }) {
+  const [h, m] = value ? value.split(':') : ['', ''];
+  const hours   = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
+  const minutes = ['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55'];
+
+  const handleH = (hh) => { if (m) onChange(`${hh}:${m}`); else onChange(`${hh}:00`); };
+  const handleM = (mm) => { if (h) onChange(`${h}:${mm}`);  else onChange(`07:${mm}`); };
+
+  return (
+    <div className={`flex items-center gap-1 bg-[#F8FAFC] border border-slate-200 rounded-2xl px-3 py-2.5 focus-within:border-[#7B8CFA] ${className}`}>
+      <select value={h || ''} onChange={e => handleH(e.target.value)}
+        className="bg-transparent text-base font-mono text-[#222222] outline-none cursor-pointer flex-1 text-center">
+        <option value="" disabled>ชม.</option>
+        {hours.map(hh => <option key={hh} value={hh}>{hh}</option>)}
+      </select>
+      <span className="text-slate-400 font-bold text-lg select-none">:</span>
+      <select value={m || ''} onChange={e => handleM(e.target.value)}
+        className="bg-transparent text-base font-mono text-[#222222] outline-none cursor-pointer flex-1 text-center">
+        <option value="" disabled>นาที</option>
+        {minutes.map(mm => <option key={mm} value={mm}>{mm}</option>)}
+      </select>
+    </div>
+  );
+}
+
 export default function App() {
   // --- Auth ---
   const [isAdmin,   setIsAdmin]   = useState(false);
@@ -146,6 +174,7 @@ export default function App() {
   const [payPeriodError,   setPayPeriodError]   = useState(null);
   const [payingId,         setPayingId]         = useState(null);
   const [selectedPeriod,   setSelectedPeriod]   = useState(null);
+  const [mobileNavOpen,    setMobileNavOpen]    = useState(false);
   const [periodDetail,     setPeriodDetail]     = useState(null);
   const [periodDetailLoading, setPeriodDetailLoading] = useState(false);
 
@@ -476,7 +505,7 @@ export default function App() {
       </div>
 
       {/* Stat cards */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {/* พนักงาน */}
         <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 flex flex-col gap-3">
           <div className="bg-[#7B8CFA]/10 w-10 h-10 rounded-2xl flex items-center justify-center">
@@ -512,7 +541,7 @@ export default function App() {
       </div>
 
       {/* Quick actions */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-2 gap-4">
         {[
           {
             tab: 'ATTENDANCE',
@@ -593,7 +622,7 @@ export default function App() {
         </div>
 
         {/* Row 1: พนักงาน + วันที่ */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="flex flex-col gap-1.5">
             <label className="text-sm font-semibold text-slate-500">พนักงาน *</label>
             <select value={attEmpId} onChange={e => { setAttEmpId(e.target.value); setAttSuccess(null); setAttError(null); }}
@@ -612,16 +641,14 @@ export default function App() {
         </div>
 
         {/* Row 2: เวลาเข้า + เวลาออก + preview */}
-        <div className="flex gap-4 items-end">
+        <div className="flex flex-col sm:flex-row gap-4 items-end">
           <div className="flex flex-col gap-1.5 flex-1">
             <label className="text-sm font-semibold text-slate-500">เวลาเข้างาน *</label>
-            <input type="time" value={attIn} onChange={e => { setAttIn(e.target.value); setAttSuccess(null); setAttError(null); }}
-              className="bg-[#F8FAFC] border border-slate-200 rounded-2xl px-4 py-3 text-base outline-none focus:border-[#7B8CFA]" />
+            <TimePicker value={attIn} onChange={v => { setAttIn(v); setAttSuccess(null); setAttError(null); }} />
           </div>
           <div className="flex flex-col gap-1.5 flex-1">
             <label className="text-sm font-semibold text-slate-500">เวลาออกงาน</label>
-            <input type="time" value={attOut} onChange={e => { setAttOut(e.target.value); setAttSuccess(null); setAttError(null); }}
-              className="bg-[#F8FAFC] border border-slate-200 rounded-2xl px-4 py-3 text-base outline-none focus:border-[#7B8CFA]" />
+            <TimePicker value={attOut} onChange={v => { setAttOut(v); setAttSuccess(null); setAttError(null); }} />
           </div>
           {/* Hours preview */}
           <div className={`flex-1 rounded-2xl px-4 py-3 text-center ${netHours ? 'bg-[#7B8CFA]/10 border border-[#7B8CFA]/20' : 'bg-slate-50 border border-slate-100'}`}>
@@ -998,33 +1025,28 @@ export default function App() {
   // ============================================================
   //  Render: Admin Layout
   // ============================================================
+  const handleNavSelect = (id) => { setActiveTab(id); setMobileNavOpen(false); };
+
   const renderAdminLayout = () => (
     <div className="min-h-screen bg-[#F0F2F5] flex">
-      {/* Sidebar */}
-      <aside className="w-56 bg-white border-r border-slate-100 flex flex-col shadow-sm flex-shrink-0">
-        {/* Brand */}
+
+      {/* ============ SIDEBAR — desktop only ============ */}
+      <aside className="hidden md:flex w-56 bg-white border-r border-slate-100 flex-col shadow-sm flex-shrink-0">
         <div className="px-5 py-5 border-b border-slate-100">
           <p className="font-bold text-[#222222] text-base leading-tight">ระบบจัดการ<br />ค่าแรง</p>
           <p className="text-xs text-slate-400 mt-1 font-mono">{formatTime(currentTime)}</p>
         </div>
-
-        {/* Nav */}
         <nav className="flex-1 py-3">
           {NAV_ITEMS.map(({ id, label, Icon }) => (
-            <button key={id}
-              onClick={() => setActiveTab(id)}
+            <button key={id} onClick={() => handleNavSelect(id)}
               className={`w-full flex items-center gap-3 px-5 py-2.5 text-sm font-medium transition-all cursor-pointer text-left
                 ${activeTab === id
                   ? 'bg-[#7B8CFA]/10 text-[#7B8CFA] font-bold border-r-2 border-[#7B8CFA]'
-                  : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
-                }`}>
-              <Icon />
-              {label}
+                  : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'}`}>
+              <Icon />{label}
             </button>
           ))}
         </nav>
-
-        {/* Logout */}
         <div className="p-4 border-t border-slate-100">
           <button onClick={handleLogout}
             className="w-full flex items-center gap-2 text-slate-400 hover:text-red-500 text-sm font-medium py-2 px-3 rounded-xl hover:bg-red-50 transition-colors cursor-pointer">
@@ -1033,25 +1055,81 @@ export default function App() {
         </div>
       </aside>
 
-      {/* Main content */}
-      <main className="flex-1 overflow-y-auto">
-        <div className="max-w-5xl mx-auto p-6">
-          {activeTab === 'DASHBOARD'  && renderDashboard()}
-          {activeTab === 'ATTENDANCE' && renderAttendance()}
-          {activeTab === 'OT'         && renderOT()}
-          {activeTab === 'PIECE_RATE' && renderPieceRate()}
-          {activeTab === 'PAYROLL'    && renderPayroll()}
-          {activeTab === 'EMPLOYEES'  && (
-            <EmployeesPage
-              employees={employees}
-              onBack={() => setActiveTab('DASHBOARD')}
-              onEnroll={() => {}}
-              onRefresh={loadEmployees}
-            />
-          )}
-          {activeTab === 'SETTINGS'   && renderSettings()}
+      {/* ============ MOBILE DRAWER ============ */}
+      {mobileNavOpen && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          {/* backdrop */}
+          <div className="absolute inset-0 bg-black/40" onClick={() => setMobileNavOpen(false)} />
+          {/* drawer */}
+          <div className="absolute left-0 top-0 bottom-0 w-64 bg-white flex flex-col shadow-2xl">
+            <div className="px-5 py-5 border-b border-slate-100 flex items-center justify-between">
+              <div>
+                <p className="font-bold text-[#222222] text-base leading-tight">ระบบจัดการค่าแรง</p>
+                <p className="text-xs text-slate-400 mt-0.5 font-mono">{formatTime(currentTime)}</p>
+              </div>
+              <button onClick={() => setMobileNavOpen(false)} className="text-slate-400 p-1 cursor-pointer">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <nav className="flex-1 py-3 overflow-y-auto">
+              {NAV_ITEMS.map(({ id, label, Icon }) => (
+                <button key={id} onClick={() => handleNavSelect(id)}
+                  className={`w-full flex items-center gap-3 px-5 py-3 text-base font-medium transition-all cursor-pointer text-left
+                    ${activeTab === id
+                      ? 'bg-[#7B8CFA]/10 text-[#7B8CFA] font-bold'
+                      : 'text-slate-600 active:bg-slate-50'}`}>
+                  <Icon />{label}
+                </button>
+              ))}
+            </nav>
+            <div className="p-4 border-t border-slate-100">
+              <button onClick={handleLogout}
+                className="w-full flex items-center gap-2 text-red-500 font-medium py-2 px-3 rounded-xl active:bg-red-50 cursor-pointer">
+                <IconLogout /> ออกจากระบบ
+              </button>
+            </div>
+          </div>
         </div>
-      </main>
+      )}
+
+      {/* ============ MAIN ============ */}
+      <div className="flex-1 flex flex-col min-w-0">
+
+        {/* Mobile top bar */}
+        <header className="md:hidden bg-white border-b border-slate-100 px-4 py-3 flex items-center justify-between sticky top-0 z-40">
+          <button onClick={() => setMobileNavOpen(true)} className="p-2 rounded-xl active:bg-slate-100 cursor-pointer">
+            <svg className="w-6 h-6 text-[#222222]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
+          <p className="font-bold text-[#222222] text-base">
+            {NAV_ITEMS.find(n => n.id === activeTab)?.label || 'ระบบจัดการค่าแรง'}
+          </p>
+          <p className="font-mono text-sm text-slate-400">{formatTime(currentTime).slice(0, 5)}</p>
+        </header>
+
+        {/* Content */}
+        <main className="flex-1 overflow-y-auto">
+          <div className="max-w-5xl mx-auto p-4 md:p-6">
+            {activeTab === 'DASHBOARD'  && renderDashboard()}
+            {activeTab === 'ATTENDANCE' && renderAttendance()}
+            {activeTab === 'OT'         && renderOT()}
+            {activeTab === 'PIECE_RATE' && renderPieceRate()}
+            {activeTab === 'PAYROLL'    && renderPayroll()}
+            {activeTab === 'EMPLOYEES'  && (
+              <EmployeesPage
+                employees={employees}
+                onBack={() => setActiveTab('DASHBOARD')}
+                onEnroll={() => {}}
+                onRefresh={loadEmployees}
+              />
+            )}
+            {activeTab === 'SETTINGS'   && renderSettings()}
+          </div>
+        </main>
+      </div>
     </div>
   );
 
