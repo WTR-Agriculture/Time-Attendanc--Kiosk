@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import * as api from './lib/api';
 import EmployeesPage from './components/EmployeesPage';
+import PieceRatePage from './components/PieceRatePage';
+import AdvancesPage from './components/AdvancesPage';
 
 // ============================================================
 //  SVG Icons
@@ -41,6 +43,12 @@ const IconSettings = () => (
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
   </svg>
 );
+const IconAdvance = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
+      d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+  </svg>
+);
 const IconLogout = () => (
   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
@@ -74,13 +82,14 @@ const ADMIN_PIN = '1234';
 const LOG_PAGE_SIZE = 20;
 
 const NAV_ITEMS = [
-  { id: 'DASHBOARD',  label: 'ภาพรวม',      Icon: IconDashboard },
-  { id: 'ATTENDANCE', label: 'บันทึกเวลา',   Icon: IconClock },
-  { id: 'OT',         label: 'OT',           Icon: IconOT },
-  { id: 'PIECE_RATE', label: 'งานเหมา',      Icon: IconPiece },
-  { id: 'PAYROLL',    label: 'งวดค่าแรง',    Icon: IconPayroll },
-  { id: 'EMPLOYEES',  label: 'พนักงาน',      Icon: IconEmployees },
-  { id: 'SETTINGS',   label: 'ตั้งค่า',      Icon: IconSettings },
+  { id: 'DASHBOARD',  label: 'ภาพรวม',        Icon: IconDashboard },
+  { id: 'ATTENDANCE', label: 'บันทึกเวลา',     Icon: IconClock },
+  { id: 'OT',         label: 'OT',             Icon: IconOT },
+  { id: 'PIECE_RATE', label: 'งานเหมา',        Icon: IconPiece },
+  { id: 'ADVANCES',   label: 'เบิกค่าแรง',     Icon: IconAdvance },
+  { id: 'PAYROLL',    label: 'งวดค่าแรง',      Icon: IconPayroll },
+  { id: 'EMPLOYEES',  label: 'พนักงาน',        Icon: IconEmployees },
+  { id: 'SETTINGS',   label: 'ตั้งค่า',        Icon: IconSettings },
 ];
 
 // ============================================================
@@ -186,15 +195,13 @@ export default function App() {
   const [adminLoading, setAdminLoading] = useState(false);
   const [adminError,   setAdminError]   = useState(null);
 
-  // --- Manual attendance entry ---
-  const [attEmpId,  setAttEmpId]  = useState('');
-  const [attDate,   setAttDate]   = useState(() => new Date().toISOString().slice(0, 10));
-  const [attIn,     setAttIn]     = useState('');
-  const [attOut,    setAttOut]    = useState('');
-  const [attNote,   setAttNote]   = useState('');
-  const [attSaving, setAttSaving] = useState(false);
-  const [attSuccess,setAttSuccess]= useState(null);
-  const [attError,  setAttError]  = useState(null);
+  // --- Attendance Day (card layout) ---
+  const [attDate,      setAttDate]      = useState(() => new Date().toLocaleDateString('en-CA'));
+  const [attDayData,   setAttDayData]   = useState([]);
+  const [attDayLoading,setAttDayLoading]= useState(false);
+  const [attCardState, setAttCardState] = useState({});
+  const [attSavingId,  setAttSavingId]  = useState(null);
+  const [attSavedId,   setAttSavedId]   = useState(null);
 
   // --- OT tab ---
   const [otEmpId,  setOtEmpId]  = useState('');
@@ -254,7 +261,7 @@ export default function App() {
   // ============================================================
   useEffect(() => {
     if (!isAdmin) return;
-    if (activeTab === 'ATTENDANCE') loadAttendanceLogs(1, logWeek);
+    if (activeTab === 'ATTENDANCE') loadAttendanceDay(attDate);
     if (activeTab === 'PAYROLL')    loadPayrollPeriods();
     if (activeTab === 'DASHBOARD')  loadDashboard();
   }, [activeTab, isAdmin]);
@@ -647,166 +654,178 @@ export default function App() {
   );
 
   // ============================================================
+  //  Attendance Day helpers
+  // ============================================================
+  const WORK_MINS = 480;
+
+  const calcLateMins = (inTime) => {
+    if (!inTime) return 0;
+    const diff = inTime.split(':').reduce((h, m, i) => i === 0 ? h + Number(m) * 60 : h + Number(m), 0) - 8 * 60;
+    return diff >= 20 ? diff : 0;
+  };
+
+  const calcNetHoursNum = (inTime, outTime) => {
+    if (!inTime || !outTime) return null;
+    const toMins = t => t.split(':').reduce((h, m, i) => i === 0 ? h + Number(m) * 60 : h + Number(m), 0);
+    const mins = toMins(outTime) - toMins(inTime) - 60;
+    return mins > 0 ? mins / 60 : null;
+  };
+
+  const loadAttendanceDay = useCallback(async (date) => {
+    setAttDayLoading(true);
+    try {
+      const data = await api.getAttendanceDay(date);
+      setAttDayData(data.employees);
+      const state = {};
+      data.employees.forEach(emp => {
+        state[emp.employeeId] = {
+          inTime:  emp.inTime  || '',
+          outTime: emp.outTime || '',
+          note:    '',
+        };
+      });
+      setAttCardState(state);
+    } catch {}
+    setAttDayLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'ATTENDANCE') loadAttendanceDay(attDate);
+  }, [activeTab, attDate]);
+
+  const handleSaveAttCard = async (emp) => {
+    const s = attCardState[emp.employeeId] || {};
+    if (!s.inTime) return;
+    setAttSavingId(emp.employeeId);
+    try {
+      await api.saveAttendanceDay({
+        employeeId: emp.employeeId, employeeName: emp.name,
+        date: attDate, inTime: s.inTime, outTime: s.outTime || null, note: s.note,
+      });
+      setAttSavedId(emp.employeeId);
+      setTimeout(() => setAttSavedId(null), 2000);
+    } catch {}
+    setAttSavingId(null);
+  };
+
+  const setCard = (empId, field, val) =>
+    setAttCardState(prev => ({ ...prev, [empId]: { ...prev[empId], [field]: val } }));
+
+  // ============================================================
   //  Render: Attendance Log
   // ============================================================
-  const renderAttendance = () => {
-    const netHours = calcNetHours(attIn, attOut);
-    return (
-    <div className="flex flex-col gap-6 animate-fade-in">
-      <h2 className="text-2xl font-bold text-[#222222]">บันทึกเวลา</h2>
-
-      {/* Manual entry form */}
-      <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 flex flex-col gap-5">
-        <div>
-          <p className="font-bold text-[#222222]">กรอกเวลาพนักงาน</p>
-          <p className="text-slate-400 text-sm mt-0.5">ระบบหักพักเที่ยง 1 ชม. อัตโนมัติ</p>
-        </div>
-
-        {/* Row 1: พนักงาน + วันที่ */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-semibold text-slate-500">พนักงาน *</label>
-            <select value={attEmpId} onChange={e => { setAttEmpId(e.target.value); setAttSuccess(null); setAttError(null); }}
-              className="bg-[#F8FAFC] border border-slate-200 rounded-2xl px-4 py-3 text-base outline-none focus:border-[#7B8CFA] cursor-pointer">
-              <option value="">-- เลือกพนักงาน --</option>
-              {employees.map(emp => (
-                <option key={emp.employeeId} value={emp.employeeId}>{emp.name}</option>
-              ))}
-            </select>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-semibold text-slate-500">วันที่ *</label>
-            <input type="date" value={attDate} onChange={e => { setAttDate(e.target.value); setAttSuccess(null); setAttError(null); }}
-              className="bg-[#F8FAFC] border border-slate-200 rounded-2xl px-4 py-3 text-base outline-none focus:border-[#7B8CFA]" />
-          </div>
-        </div>
-
-        {/* Row 2: เวลาเข้า + เวลาออก + preview */}
-        <div className="flex flex-col sm:flex-row gap-4 items-end">
-          <div className="flex flex-col gap-1.5 flex-1">
-            <label className="text-sm font-semibold text-slate-500">เวลาเข้างาน *</label>
-            <TimePicker value={attIn} onChange={v => { setAttIn(v); setAttSuccess(null); setAttError(null); }} />
-          </div>
-          <div className="flex flex-col gap-1.5 flex-1">
-            <label className="text-sm font-semibold text-slate-500">เวลาออกงาน</label>
-            <TimePicker value={attOut} onChange={v => { setAttOut(v); setAttSuccess(null); setAttError(null); }} />
-          </div>
-          {/* Hours preview */}
-          <div className={`flex-1 rounded-2xl px-4 py-3 text-center ${netHours ? 'bg-[#7B8CFA]/10 border border-[#7B8CFA]/20' : 'bg-slate-50 border border-slate-100'}`}>
-            <p className="text-xs text-slate-400 mb-0.5">ชม.สุทธิ (หัก 1 ชม.)</p>
-            <p className={`text-xl font-bold ${netHours ? 'text-[#7B8CFA]' : 'text-slate-300'}`}>{netHours || '—'}</p>
-          </div>
-        </div>
-
-        {/* Row 3: หมายเหตุ */}
-        <div className="flex flex-col gap-1.5">
-          <label className="text-sm font-semibold text-slate-500">หมายเหตุ <span className="font-normal text-slate-400">(ไม่บังคับ)</span></label>
-          <input type="text" value={attNote} placeholder="เช่น ลางาน ครึ่งวัน, มาสาย"
-            onChange={e => { setAttNote(e.target.value); setAttSuccess(null); setAttError(null); }}
-            className="bg-[#F8FAFC] border border-slate-200 rounded-2xl px-4 py-3 text-base outline-none focus:border-[#7B8CFA]" />
-        </div>
-
-        {/* Submit */}
-        <div className="flex items-center gap-3">
-          <button onClick={handleSubmitAttendance}
-            disabled={!attEmpId || !attDate || !attIn || attSaving}
-            className="bg-[#7B8CFA] disabled:opacity-40 text-white font-bold px-8 py-3 rounded-2xl cursor-pointer active:scale-95 transition-transform flex items-center gap-2">
-            {attSaving
-              ? <><div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />กำลังบันทึก...</>
-              : 'บันทึก'
-            }
-          </button>
-          {attSuccess && <p className="text-emerald-600 font-medium text-sm">✓ {attSuccess}</p>}
-          {attError   && <p className="text-red-500 font-medium text-sm">{attError}</p>}
+  const renderAttendance = () => (
+    <div className="flex flex-col gap-5">
+      {/* Date picker */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <h2 className="text-2xl font-bold text-[#222222]">บันทึกเวลา</h2>
+        <div className="flex items-center gap-2">
+          <input type="date" value={attDate}
+            onChange={e => setAttDate(e.target.value)}
+            className="bg-white border border-slate-200 rounded-2xl px-4 py-2.5 text-base outline-none focus:border-[#7B8CFA]" />
+          <button onClick={() => loadAttendanceDay(attDate)}
+            className="bg-[#F2F2F2] p-2.5 rounded-2xl hover:bg-slate-200 cursor-pointer"><IconRefresh /></button>
         </div>
       </div>
 
-      {/* Log table */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <label className="text-sm font-medium text-slate-500">สัปดาห์</label>
-          <input type="week" value={logWeek.replace('-', '-W')}
-            onChange={e => {
-              const v = e.target.value.replace('-W', '-');
-              setLogWeek(v);
-              loadAttendanceLogs(1, v);
-            }}
-            className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-[#7B8CFA]" />
-          <button onClick={() => loadAttendanceLogs(1, logWeek)}
-            className="bg-[#F2F2F2] p-2 rounded-xl hover:bg-slate-200 cursor-pointer" title="รีเฟรช">
-            <IconRefresh />
-          </button>
-        </div>
-        <button onClick={exportLogsCSV} disabled={adminLogs.length === 0}
-          className="bg-[#C6F45D] disabled:opacity-40 text-[#222222] px-4 py-2 rounded-xl font-bold text-sm cursor-pointer flex items-center gap-1.5">
-          <IconDownload /> Export CSV
-        </button>
-      </div>
-
-      {adminLoading ? (
-        <div className="flex items-center justify-center gap-3 py-16 text-slate-400">
+      {attDayLoading ? (
+        <div className="flex justify-center py-16 text-slate-400 gap-3">
           <div className="w-6 h-6 border-4 border-slate-100 border-t-[#7B8CFA] rounded-full animate-spin" />
           กำลังโหลด...
         </div>
-      ) : adminError ? (
-        <div className="text-center py-10 text-red-500">{adminError}</div>
-      ) : adminLogs.length === 0 ? (
-        <div className="text-center py-16 text-slate-400">ยังไม่มีข้อมูลในสัปดาห์นี้</div>
+      ) : attDayData.length === 0 ? (
+        <div className="text-center py-16 text-slate-400">ยังไม่มีพนักงาน</div>
       ) : (
-        <>
-          <div className="overflow-auto rounded-2xl border border-slate-100">
-            <table className="w-full text-left border-collapse text-sm">
-              <thead className="bg-[#F8FAFC] text-slate-500 sticky top-0">
-                <tr>
-                  {['วันที่','รหัส','ชื่อ-สกุล','เข้างาน','ออกงาน','ชม.สุทธิ','สถานะ'].map(h => (
-                    <th key={h} className="px-4 py-3 font-bold border-b border-slate-100 whitespace-nowrap">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {adminLogs.map((log, i) => (
-                  <tr key={i} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
-                    <td className="px-4 py-3 text-slate-600">{log.date}</td>
-                    <td className="px-4 py-3 font-mono text-slate-400">{log.employeeId}</td>
-                    <td className="px-4 py-3 font-bold text-[#222222]">{log.name}</td>
-                    <td className="px-4 py-3 font-mono text-center">{log.in || '-'}</td>
-                    <td className="px-4 py-3 font-mono text-center">{log.out || '-'}</td>
-                    <td className="px-4 py-3 text-center font-bold text-[#7B8CFA]">{log.workedHours || '-'}</td>
-                    <td className="px-4 py-3 text-center">
-                      {log.status === 'complete'
-                        ? <span className="bg-emerald-100 text-emerald-700 px-2.5 py-0.5 rounded-full text-xs font-bold">ครบ</span>
-                        : <span className="bg-amber-100 text-amber-700 px-2.5 py-0.5 rounded-full text-xs font-bold">ไม่ครบ</span>
-                      }
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        <div className="flex flex-col gap-4">
+          {attDayData.map(emp => {
+            const s         = attCardState[emp.employeeId] || {};
+            const lateMins  = calcLateMins(s.inTime);
+            const lateDeduct= lateMins > 0 ? lateMins * (emp.rate / WORK_MINS) : 0;
+            const netHoursN = calcNetHoursNum(s.inTime, s.outTime);
+            const otAmt     = emp.otHours > 0 ? emp.otHours * (emp.rate / 8) * emp.otRate : 0;
+            const todayWage = emp.rateType === 'daily'
+              ? emp.rate - lateDeduct + otAmt
+              : (netHoursN ? netHoursN * emp.rate + otAmt : null);
+            const isSaving  = attSavingId === emp.employeeId;
+            const isSaved   = attSavedId  === emp.employeeId;
+            const hasData   = !!(emp.inTime || emp.outTime);
 
-          {logTotal > LOG_PAGE_SIZE && (
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-slate-400">
-                แสดง {(logPage - 1) * LOG_PAGE_SIZE + 1}–{Math.min(logPage * LOG_PAGE_SIZE, logTotal)} จาก {logTotal} รายการ
-              </p>
-              <div className="flex items-center gap-2">
-                <button onClick={() => loadAttendanceLogs(logPage - 1, logWeek)} disabled={logPage <= 1 || adminLoading}
-                  className="px-4 py-2 rounded-xl bg-slate-100 text-slate-600 font-bold disabled:opacity-40 cursor-pointer text-sm">
-                  ← ก่อนหน้า
-                </button>
-                <span className="text-sm font-bold text-[#222222] px-2">หน้า {logPage} / {Math.ceil(logTotal / LOG_PAGE_SIZE)}</span>
-                <button onClick={() => loadAttendanceLogs(logPage + 1, logWeek)} disabled={logPage >= Math.ceil(logTotal / LOG_PAGE_SIZE) || adminLoading}
-                  className="px-4 py-2 rounded-xl bg-slate-100 text-slate-600 font-bold disabled:opacity-40 cursor-pointer text-sm">
-                  ถัดไป →
-                </button>
+            return (
+              <div key={emp.employeeId}
+                className={`bg-white rounded-3xl border shadow-sm p-5 flex flex-col gap-4
+                  ${hasData ? 'border-[#7B8CFA]/30' : 'border-slate-100'}`}>
+
+                {/* Header */}
+                <div className="flex items-center justify-between">
+                  <p className="font-bold text-[#222222]">{emp.name}</p>
+                  {hasData && (
+                    <span className="text-xs bg-[#7B8CFA]/10 text-[#7B8CFA] font-semibold px-2.5 py-1 rounded-full">
+                      มีข้อมูล
+                    </span>
+                  )}
+                </div>
+
+                {/* Time pickers */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-semibold text-slate-400">เวลาเข้างาน</label>
+                    <TimePicker value={s.inTime || '08:00'} onChange={v => setCard(emp.employeeId, 'inTime', v)} />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-semibold text-slate-400">เวลาออกงาน</label>
+                    <TimePicker value={s.outTime || '17:00'} onChange={v => setCard(emp.employeeId, 'outTime', v)} />
+                  </div>
+                </div>
+
+                {/* Auto-calculated stats */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <div className="bg-[#F8FAFC] rounded-2xl px-3 py-2 text-center">
+                    <p className="text-xs text-slate-400 mb-0.5">ชม.สุทธิ</p>
+                    <p className="font-bold text-[#7B8CFA] text-sm">
+                      {netHoursN ? `${netHoursN.toFixed(1)} ชม.` : '—'}
+                    </p>
+                  </div>
+                  <div className={`rounded-2xl px-3 py-2 text-center ${lateMins > 0 ? 'bg-red-50' : 'bg-[#F8FAFC]'}`}>
+                    <p className="text-xs text-slate-400 mb-0.5">มาสาย</p>
+                    <p className={`font-bold text-sm ${lateMins > 0 ? 'text-red-500' : 'text-slate-300'}`}>
+                      {lateMins > 0 ? `${lateMins} นาที` : '—'}
+                    </p>
+                  </div>
+                  <div className={`rounded-2xl px-3 py-2 text-center ${lateMins > 0 ? 'bg-red-50' : 'bg-[#F8FAFC]'}`}>
+                    <p className="text-xs text-slate-400 mb-0.5">หักสาย</p>
+                    <p className={`font-bold text-sm ${lateMins > 0 ? 'text-red-500' : 'text-slate-300'}`}>
+                      {lateMins > 0 ? `฿${lateDeduct.toFixed(0)}` : '—'}
+                    </p>
+                  </div>
+                  <div className="bg-[#F8FAFC] rounded-2xl px-3 py-2 text-center">
+                    <p className="text-xs text-slate-400 mb-0.5">
+                      ค่าแรงวันนี้{emp.otHours > 0 ? ` +OT ${emp.otHours}ชม.` : ''}
+                    </p>
+                    <p className="font-bold text-emerald-600 text-sm">
+                      {todayWage != null ? `฿${todayWage.toFixed(0)}` : '—'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Note + Save */}
+                <div className="flex gap-3 items-center">
+                  <input type="text" value={s.note || ''} onChange={e => setCard(emp.employeeId, 'note', e.target.value)}
+                    placeholder="หมายเหตุ (ไม่บังคับ)"
+                    className="flex-1 bg-[#F8FAFC] border border-slate-200 rounded-2xl px-4 py-2.5 text-sm outline-none focus:border-[#7B8CFA]" />
+                  <button onClick={() => handleSaveAttCard(emp)}
+                    disabled={!s.inTime || isSaving}
+                    className={`font-bold px-5 py-2.5 rounded-2xl cursor-pointer text-sm active:scale-95 transition-all flex-shrink-0
+                      ${isSaved ? 'bg-emerald-500 text-white' : 'bg-[#7B8CFA] disabled:opacity-40 text-white'}`}>
+                    {isSaving ? '...' : isSaved ? '✓ บันทึกแล้ว' : 'บันทึก'}
+                  </button>
+                </div>
               </div>
-            </div>
-          )}
-        </>
+            );
+          })}
+        </div>
       )}
     </div>
   );
-  };
 
   // ============================================================
   //  Render: OT
@@ -866,20 +885,6 @@ export default function App() {
 
         {otSuccess && <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-3 rounded-xl text-sm font-medium">✓ {otSuccess}</div>}
         {otError   && <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-xl text-sm font-medium">{otError}</div>}
-      </div>
-    </div>
-  );
-
-  // ============================================================
-  //  Render: Piece Rate (placeholder Phase 2)
-  // ============================================================
-  const renderPieceRate = () => (
-    <div className="flex flex-col gap-4 animate-fade-in">
-      <h2 className="text-2xl font-bold text-[#222222]">งานเหมา</h2>
-      <div className="bg-white rounded-2xl border border-slate-100 p-10 text-center text-slate-400">
-        <IconPiece />
-        <p className="mt-4 text-lg font-medium">อยู่ระหว่างพัฒนา</p>
-        <p className="text-sm mt-1">ระบบบันทึกงานเหมา (Piece Rate) จะพร้อมใช้งานเร็วๆ นี้</p>
       </div>
     </div>
   );
@@ -1157,7 +1162,8 @@ export default function App() {
             {activeTab === 'DASHBOARD'  && renderDashboard()}
             {activeTab === 'ATTENDANCE' && renderAttendance()}
             {activeTab === 'OT'         && renderOT()}
-            {activeTab === 'PIECE_RATE' && renderPieceRate()}
+            {activeTab === 'PIECE_RATE' && <PieceRatePage employees={employees} />}
+            {activeTab === 'ADVANCES'   && <AdvancesPage />}
             {activeTab === 'PAYROLL'    && renderPayroll()}
             {activeTab === 'EMPLOYEES'  && (
               <EmployeesPage

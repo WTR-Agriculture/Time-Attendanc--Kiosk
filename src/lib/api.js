@@ -169,6 +169,80 @@ export async function payPayrollPeriod(periodId) {
 }
 
 // ============================================================
+//  Attendance Day (card layout)
+// ============================================================
+export async function getAttendanceDay(date) {
+  return apiGet('/api/attendance/day', { date });
+}
+
+export async function saveAttendanceDay({ employeeId, employeeName, date, inTime, outTime, note }) {
+  return apiPost('/api/attendance/day', { employeeId, employeeName, date, inTime, outTime, note: note || '' });
+}
+
+// ============================================================
+//  Piece Rate
+// ============================================================
+export async function getPieceRateJobs() {
+  return apiGet('/api/piece_rate/jobs');
+}
+
+export async function createPieceRateJob(body) {
+  return apiPost('/api/piece_rate/jobs', body);
+}
+
+export async function updatePieceRateJob(id, body) {
+  const res = await fetch(`${API_URL}/api/piece_rate/jobs/${id}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`API PUT error: ${res.status}`);
+  return res.json();
+}
+
+export async function deletePieceRateJob(id) {
+  const res = await fetch(`${API_URL}/api/piece_rate/jobs/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`API DELETE error: ${res.status}`);
+  return res.json();
+}
+
+export async function getPieceRateLogs(params = {}) {
+  return apiGet('/api/piece_rate/logs', params);
+}
+
+export async function createPieceRateLog(body) {
+  return apiPost('/api/piece_rate/logs', body);
+}
+
+export async function deletePieceRateLog(id) {
+  const res = await fetch(`${API_URL}/api/piece_rate/logs/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`API DELETE error: ${res.status}`);
+  return res.json();
+}
+
+// ============================================================
+//  Wage Advances
+// ============================================================
+export async function getAdvances() {
+  return apiGet('/api/advances');
+}
+
+export async function getAdvanceHistory(empId) {
+  return apiGet(`/api/advances/${encodeURIComponent(empId)}/history`);
+}
+
+export async function createAdvance(body) {
+  return apiPost('/api/advances', body);
+}
+
+export async function setAdvanceDeduction(periodId, employeeId, amount) {
+  const res = await fetch(`${API_URL}/api/payroll/periods/${periodId}/advance`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ employeeId, amount }),
+  });
+  if (!res.ok) throw new Error(`API PUT error: ${res.status}`);
+  return res.json();
+}
+
+// ============================================================
 //  getCurrentWeekStr — helper คืน "YYYY-WW" สัปดาห์ปัจจุบัน
 // ============================================================
 export function getCurrentWeekStr() {

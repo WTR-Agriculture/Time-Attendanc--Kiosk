@@ -1,0 +1,352 @@
+import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import * as api from '../lib/api';
+
+const today = () => new Date().toLocaleDateString('en-CA');
+
+const formatMoney = (n) =>
+  '฿' + Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+const inputCls = 'bg-[#F8FAFC] border border-slate-200 rounded-2xl px-4 py-3 text-base outline-none focus:border-[#7B8CFA] w-full';
+
+const Modal = ({ children, onClose }) => createPortal(
+  <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/40 px-0 sm:px-4"
+    onClick={onClose}>
+    <div className="bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl shadow-xl p-6 flex flex-col gap-4 max-h-[90vh] overflow-y-auto"
+      onClick={e => e.stopPropagation()}>
+      {children}
+    </div>
+  </div>,
+  document.body
+);
+
+export default function PieceRatePage({ employees }) {
+  const [tab, setTab]           = useState('log');
+  const [jobs, setJobs]         = useState([]);
+  const [logs, setLogs]         = useState([]);
+  const [logDate, setLogDate]   = useState(today());
+  const [loading, setLoading]   = useState(false);
+
+  // form state
+  const [fEmpId, setFEmpId]     = useState('');
+  const [fJobId, setFJobId]     = useState('');
+  const [fDate, setFDate]       = useState(today());
+  const [fQty, setFQty]         = useState('');
+  const [fLen, setFLen]         = useState('');
+  const [fNote, setFNote]       = useState('');
+  const [saving, setSaving]     = useState(false);
+  const [saveOk, setSaveOk]     = useState(false);
+
+  // job management
+  const [showJobForm, setShowJobForm] = useState(false);
+  const [editJob, setEditJob]         = useState(null);
+  const [jName, setJName]   = useState('');
+  const [jUnit, setJUnit]   = useState('');
+  const [jPrice, setJPrice] = useState('');
+  const [jBase, setJBase]   = useState('');
+  const [jExtra, setJExtra] = useState('');
+  const [jSaving, setJSaving] = useState(false);
+
+  useEffect(() => { loadJobs(); }, []);
+  useEffect(() => { if (tab === 'log') loadLogs(logDate); }, [tab, logDate]);
+
+  const loadJobs = async () => {
+    try { const d = await api.getPieceRateJobs(); setJobs(d.jobs); } catch {}
+  };
+
+  const loadLogs = async (date) => {
+    setLoading(true);
+    try { const d = await api.getPieceRateLogs({ date }); setLogs(d.logs); } catch {}
+    setLoading(false);
+  };
+
+  // price calculation
+  const selectedJob = jobs.find(j => j.id === Number(fJobId));
+  const calcUnitPrice = () => {
+    if (!selectedJob) return 0;
+    const len = parseFloat(fLen) || 0;
+    const extra = Math.max(0, len - selectedJob.baseLength) * selectedJob.extraPerUnit;
+    return selectedJob.basePrice + extra;
+  };
+  const unitPrice   = calcUnitPrice();
+  const totalAmount = unitPrice * (parseFloat(fQty) || 0);
+
+  const handleSaveLog = async () => {
+    if (!fEmpId || !fJobId || !fQty || !fDate) return;
+    setSaving(true);
+    try {
+      const emp = employees.find(e => e.employeeId === fEmpId);
+      await api.createPieceRateLog({
+        employeeId: fEmpId, employeeName: emp?.name || fEmpId,
+        jobId: Number(fJobId), logDate: fDate,
+        quantity: parseFloat(fQty), unitLength: parseFloat(fLen) || 0,
+        unitPrice, totalAmount, note: fNote,
+      });
+      setSaveOk(true);
+      setFQty(''); setFLen(''); setFNote('');
+      setTimeout(() => setSaveOk(false), 2000);
+      if (fDate === logDate) loadLogs(logDate);
+    } catch {}
+    setSaving(false);
+  };
+
+  const handleDeleteLog = async (id) => {
+    if (!confirm('ลบรายการนี้?')) return;
+    await api.deletePieceRateLog(id);
+    loadLogs(logDate);
+  };
+
+  const openJobForm = (job = null) => {
+    setEditJob(job);
+    setJName(job?.jobName || '');
+    setJUnit(job?.unit || '');
+    setJPrice(job ? String(job.basePrice) : '');
+    setJBase(job ? String(job.baseLength) : '0');
+    setJExtra(job ? String(job.extraPerUnit) : '0');
+    setShowJobForm(true);
+  };
+
+  const handleSaveJob = async () => {
+    if (!jName || !jUnit || !jPrice) return;
+    setJSaving(true);
+    const body = { jobName: jName, unit: jUnit, basePrice: parseFloat(jPrice),
+                   baseLength: parseFloat(jBase) || 0, extraPerUnit: parseFloat(jExtra) || 0 };
+    try {
+      if (editJob) await api.updatePieceRateJob(editJob.id, body);
+      else await api.createPieceRateJob(body);
+      setShowJobForm(false);
+      loadJobs();
+    } catch {}
+    setJSaving(false);
+  };
+
+  const handleDeleteJob = async (id) => {
+    if (!confirm('ลบประเภทงานนี้?')) return;
+    await api.deletePieceRateJob(id);
+    loadJobs();
+  };
+
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <h2 className="text-2xl font-bold text-[#222222]">งานเหมา</h2>
+        <div className="flex gap-2">
+          {['log', 'jobs'].map(t => (
+            <button key={t} onClick={() => setTab(t)}
+              className={`px-4 py-2 rounded-2xl text-sm font-semibold cursor-pointer transition-colors
+                ${tab === t ? 'bg-[#7B8CFA] text-white' : 'bg-white text-slate-500 border border-slate-200'}`}>
+              {t === 'log' ? 'บันทึกงาน' : 'ประเภทงาน'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Tab: บันทึกงาน ── */}
+      {tab === 'log' && (
+        <div className="flex flex-col gap-5">
+          {/* Entry form */}
+          <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 flex flex-col gap-4">
+            <p className="font-bold text-[#222222]">กรอกรายการงานเหมา</p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-semibold text-slate-500">พนักงาน *</label>
+                <select value={fEmpId} onChange={e => setFEmpId(e.target.value)} className={inputCls}>
+                  <option value="">-- เลือกพนักงาน --</option>
+                  {employees.map(e => <option key={e.employeeId} value={e.employeeId}>{e.name}</option>)}
+                </select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-semibold text-slate-500">วันที่ *</label>
+                <input type="date" value={fDate} onChange={e => setFDate(e.target.value)} className={inputCls} />
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-semibold text-slate-500">ประเภทงาน *</label>
+              <select value={fJobId} onChange={e => setFJobId(e.target.value)} className={inputCls}>
+                <option value="">-- เลือกประเภทงาน --</option>
+                {jobs.map(j => <option key={j.id} value={j.id}>{j.jobName} ({j.unit})</option>)}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-semibold text-slate-500">จำนวน ({selectedJob?.unit || 'หน่วย'}) *</label>
+                <input type="number" min="0" value={fQty} onChange={e => setFQty(e.target.value)}
+                  placeholder="0" className={inputCls} />
+              </div>
+              {selectedJob?.baseLength > 0 && (
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-sm font-semibold text-slate-500">ความยาวต่อชิ้น</label>
+                  <input type="number" min="0" value={fLen} onChange={e => setFLen(e.target.value)}
+                    placeholder="0" className={inputCls} />
+                </div>
+              )}
+              <div className="flex flex-col gap-1.5 col-span-2 sm:col-span-1">
+                <label className="text-sm font-semibold text-slate-500">หมายเหตุ</label>
+                <input type="text" value={fNote} onChange={e => setFNote(e.target.value)}
+                  placeholder="ไม่บังคับ" className={inputCls} />
+              </div>
+            </div>
+
+            {/* Preview */}
+            {selectedJob && fQty && (
+              <div className="bg-[#7B8CFA]/8 border border-[#7B8CFA]/20 rounded-2xl px-4 py-3 flex justify-between items-center">
+                <p className="text-sm text-slate-500">
+                  {fQty} {selectedJob.unit} × {formatMoney(unitPrice)}
+                </p>
+                <p className="text-lg font-bold text-[#7B8CFA]">{formatMoney(totalAmount)}</p>
+              </div>
+            )}
+
+            <div className="flex items-center gap-3">
+              <button onClick={handleSaveLog}
+                disabled={!fEmpId || !fJobId || !fQty || !fDate || saving}
+                className="bg-[#7B8CFA] disabled:opacity-40 text-white font-bold px-6 py-3 rounded-2xl cursor-pointer active:scale-95 transition-transform">
+                {saving ? 'กำลังบันทึก...' : 'บันทึก'}
+              </button>
+              {saveOk && <p className="text-emerald-600 font-medium text-sm">✓ บันทึกแล้ว</p>}
+            </div>
+          </div>
+
+          {/* Log list */}
+          <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 flex flex-col gap-4">
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <p className="font-bold text-[#222222]">รายการวันที่</p>
+              <input type="date" value={logDate}
+                onChange={e => { setLogDate(e.target.value); loadLogs(e.target.value); }}
+                className="bg-[#F8FAFC] border border-slate-200 rounded-2xl px-3 py-2 text-sm outline-none focus:border-[#7B8CFA]" />
+            </div>
+
+            {loading ? (
+              <p className="text-center text-slate-400 text-sm py-6">กำลังโหลด...</p>
+            ) : logs.length === 0 ? (
+              <p className="text-center text-slate-400 text-sm py-6">ไม่มีรายการวันนี้</p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {logs.map(log => (
+                  <div key={log.id} className="border border-slate-100 rounded-2xl px-4 py-3 flex items-center justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-[#222222] text-sm truncate">{log.employeeName}</p>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        {log.jobName} · {log.quantity} {log.unit}
+                        {log.unitLength > 0 ? ` (${log.unitLength})` : ''}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3 flex-shrink-0">
+                      <p className="font-bold text-[#10B981]">{formatMoney(log.totalAmount)}</p>
+                      <button onClick={() => handleDeleteLog(log.id)}
+                        className="text-slate-300 hover:text-red-400 transition-colors cursor-pointer">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
+                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                <div className="flex justify-end pt-1 border-t border-slate-100">
+                  <p className="font-bold text-[#7B8CFA]">
+                    รวม {formatMoney(logs.reduce((s, l) => s + l.totalAmount, 0))}
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Tab: ประเภทงาน ── */}
+      {tab === 'jobs' && (
+        <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 flex flex-col gap-4">
+          <div className="flex items-center justify-between">
+            <p className="font-bold text-[#222222]">ประเภทงานเหมา</p>
+            <button onClick={() => openJobForm()}
+              className="bg-[#7B8CFA] text-white text-sm font-bold px-4 py-2 rounded-2xl cursor-pointer active:scale-95 transition-transform">
+              + เพิ่มประเภท
+            </button>
+          </div>
+
+          {jobs.length === 0 ? (
+            <p className="text-center text-slate-400 text-sm py-6">ยังไม่มีประเภทงาน</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {jobs.map(job => (
+                <div key={job.id} className="border border-slate-100 rounded-2xl px-4 py-3 flex items-center justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-[#222222] text-sm">{job.jobName}</p>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      ฿{job.basePrice}/{job.unit}
+                      {job.baseLength > 0 ? ` · บวก ฿${job.extraPerUnit}/หน่วยเกิน ${job.baseLength}` : ''}
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => openJobForm(job)}
+                      className="text-slate-400 hover:text-[#7B8CFA] cursor-pointer p-1 transition-colors">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
+                          d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                      </svg>
+                    </button>
+                    <button onClick={() => handleDeleteJob(job.id)}
+                      className="text-slate-300 hover:text-red-400 cursor-pointer p-1 transition-colors">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
+                          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Job Form Modal ── */}
+      {showJobForm && (
+        <Modal onClose={() => setShowJobForm(false)}>
+          <h2 className="text-xl font-bold text-[#222222]">{editJob ? 'แก้ไขประเภทงาน' : 'เพิ่มประเภทงาน'}</h2>
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-semibold text-slate-500">ชื่องาน *</label>
+              <input value={jName} onChange={e => setJName(e.target.value)} placeholder="เช่น เย็บถุง" className={inputCls} />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-semibold text-slate-500">หน่วย *</label>
+              <input value={jUnit} onChange={e => setJUnit(e.target.value)} placeholder="เช่น ชิ้น, ศอก, เมตร" className={inputCls} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-semibold text-slate-500">ราคาฐาน (บาท/หน่วย) *</label>
+                <input type="number" min="0" value={jPrice} onChange={e => setJPrice(e.target.value)}
+                  placeholder="0" className={inputCls} />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-semibold text-slate-500">ความยาวฐาน</label>
+                <input type="number" min="0" value={jBase} onChange={e => setJBase(e.target.value)}
+                  placeholder="0 = ไม่มีสูตรพิเศษ" className={inputCls} />
+              </div>
+            </div>
+            {parseFloat(jBase) > 0 && (
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-semibold text-slate-500">บวกเพิ่มต่อหน่วยที่เกินความยาวฐาน</label>
+                <input type="number" min="0" value={jExtra} onChange={e => setJExtra(e.target.value)}
+                  placeholder="0" className={inputCls} />
+              </div>
+            )}
+          </div>
+          <div className="flex gap-3 pt-1">
+            <button onClick={() => setShowJobForm(false)}
+              className="flex-1 bg-slate-100 text-slate-600 font-bold py-3 rounded-2xl cursor-pointer">ยกเลิก</button>
+            <button onClick={handleSaveJob} disabled={!jName || !jUnit || !jPrice || jSaving}
+              className="flex-1 bg-[#7B8CFA] disabled:opacity-40 text-white font-bold py-3 rounded-2xl cursor-pointer">
+              {jSaving ? 'กำลังบันทึก...' : 'บันทึก'}
+            </button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}

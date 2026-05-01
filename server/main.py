@@ -682,9 +682,333 @@ def pay_payroll_period(period_id: int):
     if cursor.rowcount == 0:
         conn.close()
         raise HTTPException(status_code=400, detail="งวดนี้จ่ายแล้ว หรือไม่พบ")
+    # บันทึกการหักเบิกเข้า WageAdvances
+    cursor.execute("""
+        SELECT ppi.EmployeeId, e.Name, ppi.AdvanceDeduction
+        FROM PayrollPeriodItems ppi
+        JOIN Employees e ON ppi.EmployeeId = e.EmployeeId
+        WHERE ppi.PeriodId = ? AND ppi.AdvanceDeduction > 0
+    """, period_id)
+    deductions = cursor.fetchall()
+    for emp_id, emp_name, amount in deductions:
+        cursor.execute("""
+            INSERT INTO WageAdvances (EmployeeId, EmployeeName, TranDate, Type, Amount, Note, PeriodId)
+            VALUES (?, ?, CAST(GETDATE() AS DATE), 'หัก', ?, 'หักจากงวดค่าแรง', ?)
+        """, emp_id, emp_name, float(amount), period_id)
+
     conn.commit()
     conn.close()
     return {"success": True, "message": "ยืนยันการจ่ายเงินเรียบร้อย"}
+
+# ============================================================
+#  PUT /api/payroll/periods/{id}/advance — ตั้งค่าหักเบิกต่อคน
+# ============================================================
+class AdvanceDeductionBody(BaseModel):
+    employeeId: str
+    amount: float
+
+@app.put("/api/payroll/periods/{period_id}/advance")
+def set_advance_deduction(period_id: int, body: AdvanceDeductionBody):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE PayrollPeriodItems
+        SET AdvanceDeduction = ?,
+            NetTotal = NetTotal - AdvanceDeduction + ?
+        WHERE PeriodId = ? AND EmployeeId = ?
+    """, body.amount, body.amount, period_id, body.employeeId)
+    if cursor.rowcount == 0:
+        conn.close()
+        raise HTTPException(status_code=404, detail="ไม่พบรายการนี้")
+    cursor.execute("""
+        UPDATE PayrollPeriods SET GrandTotal = (
+            SELECT SUM(NetTotal) FROM PayrollPeriodItems WHERE PeriodId = ?
+        ) WHERE Id = ?
+    """, period_id, period_id)
+    conn.commit()
+    conn.close()
+    return {"success": True}
+
+# ============================================================
+#  GET /api/attendance/day — ดึงข้อมูลเวลาเข้าออกทุกคนของวัน
+# ============================================================
+@app.get("/api/attendance/day")
+def get_attendance_day(date: str):
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT EmployeeId, Name, Rate, RateType
+        FROM Employees WHERE IsActive = 1 ORDER BY Name
+    """)
+    employees = [{"employeeId": r[0], "name": r[1], "rate": float(r[2]), "rateType": r[3]}
+                 for r in cursor.fetchall()]
+
+    cursor.execute("""
+        SELECT EmployeeId, ActionType, TimeStr
+        FROM AttendanceLogs WHERE CAST(DateStr AS DATE) = ?
+        ORDER BY TimeStr
+    """, date)
+    log_rows = cursor.fetchall()
+
+    cursor.execute("""
+        SELECT EmployeeId, SUM(Hours), AVG(OTRate)
+        FROM OTLogs WHERE LogDate = ?
+        GROUP BY EmployeeId
+    """, date)
+    ot_map = {r[0]: {"hours": float(r[1]), "otRate": float(r[2])} for r in cursor.fetchall()}
+    conn.close()
+
+    att_map = {}
+    for emp_id, action, time_val in log_rows:
+        t = str(time_val)[:5]
+        if emp_id not in att_map:
+            att_map[emp_id] = {"in": None, "out": None}
+        if action == "เข้างาน":
+            att_map[emp_id]["in"] = t
+        elif action == "ออกงาน":
+            att_map[emp_id]["out"] = t
+
+    result = []
+    for emp in employees:
+        emp_id = emp["employeeId"]
+        att   = att_map.get(emp_id, {"in": None, "out": None})
+        ot    = ot_map.get(emp_id, {"hours": 0, "otRate": 1.0})
+        late_mins = 0
+        if att["in"]:
+            diff = time_to_minutes(att["in"]) - time_to_minutes(SCHEDULE["เข้างาน"]["expected"])
+            if diff >= SCHEDULE["เข้างาน"]["graceMin"]:
+                late_mins = diff
+        result.append({**emp, "inTime": att["in"], "outTime": att["out"],
+                        "lateMins": late_mins, "otHours": ot["hours"], "otRate": ot["otRate"]})
+
+    return {"date": date, "employees": result}
+
+# ============================================================
+#  POST /api/attendance/day — บันทึกเวลาเข้าออก (upsert per employee)
+# ============================================================
+class AttendanceDayBody(BaseModel):
+    employeeId:   str
+    employeeName: str
+    date:         str
+    inTime:       Optional[str] = None
+    outTime:      Optional[str] = None
+    note:         Optional[str] = ""
+
+@app.post("/api/attendance/day")
+def save_attendance_day(body: AttendanceDayBody):
+    conn = get_db()
+    cursor = conn.cursor()
+    now  = get_bangkok_now()
+
+    cursor.execute("""
+        DELETE FROM AttendanceLogs
+        WHERE EmployeeId = ? AND CAST(DateStr AS DATE) = ?
+        AND ActionType IN ('เข้างาน', 'ออกงาน')
+    """, body.employeeId, body.date)
+
+    ts = int(now.timestamp() * 1000)
+    if body.inTime:
+        cursor.execute("""
+            INSERT INTO AttendanceLogs
+                (Id, EmployeeId, EmployeeName, ActionType, TimestampServer, DateStr, TimeStr, ConfidenceScore, DeviceId)
+            VALUES (?, ?, ?, 'เข้างาน', ?, ?, ?, 0, 'ADMIN')
+        """, f"LOG-{ts}-IN", body.employeeId, body.employeeName,
+            f"{body.date} {body.inTime}:00", body.date, f"{body.inTime}:00")
+    if body.outTime:
+        cursor.execute("""
+            INSERT INTO AttendanceLogs
+                (Id, EmployeeId, EmployeeName, ActionType, TimestampServer, DateStr, TimeStr, ConfidenceScore, DeviceId)
+            VALUES (?, ?, ?, 'ออกงาน', ?, ?, ?, 0, 'ADMIN')
+        """, f"LOG-{ts+1}-OUT", body.employeeId, body.employeeName,
+            f"{body.date} {body.outTime}:00", body.date, f"{body.outTime}:00")
+
+    conn.commit()
+    conn.close()
+    return {"success": True}
+
+# ============================================================
+#  Piece Rate Jobs
+# ============================================================
+class PieceRateJobBody(BaseModel):
+    jobName:      str
+    unit:         str
+    basePrice:    float
+    baseLength:   float = 0
+    extraPerUnit: float = 0
+
+@app.get("/api/piece_rate/jobs")
+def get_piece_rate_jobs():
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT Id, JobName, Unit, BasePrice, BaseLength, ExtraPerUnit
+        FROM PieceRateMaster WHERE IsActive = 1 ORDER BY JobName
+    """)
+    jobs = [{"id": r[0], "jobName": r[1], "unit": r[2], "basePrice": float(r[3]),
+             "baseLength": float(r[4]), "extraPerUnit": float(r[5])} for r in cursor.fetchall()]
+    conn.close()
+    return {"jobs": jobs}
+
+@app.post("/api/piece_rate/jobs")
+def create_piece_rate_job(body: PieceRateJobBody):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO PieceRateMaster (JobName, Unit, BasePrice, BaseLength, ExtraPerUnit)
+        VALUES (?, ?, ?, ?, ?)
+    """, body.jobName, body.unit, body.basePrice, body.baseLength, body.extraPerUnit)
+    conn.commit()
+    conn.close()
+    return {"success": True}
+
+@app.put("/api/piece_rate/jobs/{job_id}")
+def update_piece_rate_job(job_id: int, body: PieceRateJobBody):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE PieceRateMaster
+        SET JobName=?, Unit=?, BasePrice=?, BaseLength=?, ExtraPerUnit=?
+        WHERE Id=?
+    """, body.jobName, body.unit, body.basePrice, body.baseLength, body.extraPerUnit, job_id)
+    conn.commit()
+    conn.close()
+    return {"success": True}
+
+@app.delete("/api/piece_rate/jobs/{job_id}")
+def delete_piece_rate_job(job_id: int):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE PieceRateMaster SET IsActive=0 WHERE Id=?", job_id)
+    conn.commit()
+    conn.close()
+    return {"success": True}
+
+# ============================================================
+#  Piece Rate Logs
+# ============================================================
+class PieceRateLogBody(BaseModel):
+    employeeId:   str
+    employeeName: str
+    jobId:        int
+    logDate:      str
+    quantity:     float
+    unitLength:   float = 0
+    unitPrice:    float
+    totalAmount:  float
+    note:         str = ""
+
+@app.get("/api/piece_rate/logs")
+def get_piece_rate_logs(date: Optional[str] = None, empId: Optional[str] = None):
+    conn = get_db()
+    cursor = conn.cursor()
+    if date:
+        cursor.execute("""
+            SELECT pl.Id, pl.EmployeeId, pl.EmployeeName, pl.JobId, pm.JobName, pm.Unit,
+                   pl.LogDate, pl.Quantity, pl.UnitLength, pl.UnitPrice, pl.TotalAmount, pl.Note
+            FROM PieceRateLogs pl JOIN PieceRateMaster pm ON pl.JobId = pm.Id
+            WHERE pl.LogDate = ? ORDER BY pl.CreatedAt DESC
+        """, date)
+    elif empId:
+        cursor.execute("""
+            SELECT pl.Id, pl.EmployeeId, pl.EmployeeName, pl.JobId, pm.JobName, pm.Unit,
+                   pl.LogDate, pl.Quantity, pl.UnitLength, pl.UnitPrice, pl.TotalAmount, pl.Note
+            FROM PieceRateLogs pl JOIN PieceRateMaster pm ON pl.JobId = pm.Id
+            WHERE pl.EmployeeId = ? ORDER BY pl.LogDate DESC, pl.CreatedAt DESC
+        """, empId)
+    else:
+        cursor.execute("""
+            SELECT TOP 100 pl.Id, pl.EmployeeId, pl.EmployeeName, pl.JobId, pm.JobName, pm.Unit,
+                   pl.LogDate, pl.Quantity, pl.UnitLength, pl.UnitPrice, pl.TotalAmount, pl.Note
+            FROM PieceRateLogs pl JOIN PieceRateMaster pm ON pl.JobId = pm.Id
+            ORDER BY pl.LogDate DESC, pl.CreatedAt DESC
+        """)
+    logs = [{"id": r[0], "employeeId": r[1], "employeeName": r[2], "jobId": r[3],
+             "jobName": r[4], "unit": r[5], "logDate": str(r[6]), "quantity": float(r[7]),
+             "unitLength": float(r[8]), "unitPrice": float(r[9]),
+             "totalAmount": float(r[10]), "note": r[11]} for r in cursor.fetchall()]
+    conn.close()
+    return {"logs": logs}
+
+@app.post("/api/piece_rate/logs")
+def create_piece_rate_log(body: PieceRateLogBody):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO PieceRateLogs
+            (EmployeeId, EmployeeName, JobId, LogDate, Quantity, UnitLength, UnitPrice, TotalAmount, Note)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, body.employeeId, body.employeeName, body.jobId, body.logDate,
+        body.quantity, body.unitLength, body.unitPrice, body.totalAmount, body.note)
+    conn.commit()
+    conn.close()
+    return {"success": True}
+
+@app.delete("/api/piece_rate/logs/{log_id}")
+def delete_piece_rate_log(log_id: int):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM PieceRateLogs WHERE Id=?", log_id)
+    conn.commit()
+    conn.close()
+    return {"success": True}
+
+# ============================================================
+#  Wage Advances
+# ============================================================
+@app.get("/api/advances")
+def get_advances():
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT EmployeeId, Name FROM Employees WHERE IsActive = 1 ORDER BY Name")
+    employees = [{"employeeId": r[0], "name": r[1]} for r in cursor.fetchall()]
+    cursor.execute("""
+        SELECT EmployeeId,
+            SUM(CASE WHEN Type='เบิก' THEN Amount ELSE 0 END),
+            SUM(CASE WHEN Type='หัก'  THEN Amount ELSE 0 END)
+        FROM WageAdvances GROUP BY EmployeeId
+    """)
+    bal_map = {r[0]: (float(r[1]), float(r[2])) for r in cursor.fetchall()}
+    conn.close()
+    result = []
+    for emp in employees:
+        adv, ded = bal_map.get(emp["employeeId"], (0.0, 0.0))
+        result.append({**emp, "totalAdvanced": adv, "totalDeducted": ded,
+                       "balance": round(adv - ded, 2)})
+    return {"employees": result}
+
+@app.get("/api/advances/{emp_id}/history")
+def get_advance_history(emp_id: str):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT Id, TranDate, Type, Amount, Note, PeriodId
+        FROM WageAdvances WHERE EmployeeId = ?
+        ORDER BY TranDate DESC, CreatedAt DESC
+    """, emp_id)
+    history = [{"id": r[0], "tranDate": str(r[1]), "type": r[2], "amount": float(r[3]),
+                "note": r[4], "periodId": r[5]} for r in cursor.fetchall()]
+    conn.close()
+    return {"history": history}
+
+class WageAdvanceBody(BaseModel):
+    employeeId:   str
+    employeeName: str
+    tranDate:     str
+    amount:       float
+    note:         str = ""
+
+@app.post("/api/advances")
+def create_advance(body: WageAdvanceBody):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO WageAdvances (EmployeeId, EmployeeName, TranDate, Type, Amount, Note)
+        VALUES (?, ?, ?, 'เบิก', ?, ?)
+    """, body.employeeId, body.employeeName, body.tranDate, body.amount, body.note)
+    conn.commit()
+    conn.close()
+    return {"success": True}
 
 # ============================================================
 #  Helpers
