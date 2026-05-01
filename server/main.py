@@ -57,6 +57,9 @@ class LogAttendanceBody(BaseModel):
     actionType: str
     confidenceScore: Optional[float] = 0
     deviceId: Optional[str] = "iPad-01"
+    manualDate: Optional[str] = None  # YYYY-MM-DD (ถ้าไม่ส่งใช้เวลา server)
+    manualTime: Optional[str] = None  # HH:MM (ถ้าไม่ส่งใช้เวลา server)
+    note: Optional[str] = ""
 
 class LogOTBody(BaseModel):
     employeeId: str
@@ -126,9 +129,9 @@ def get_employees():
 # ============================================================
 @app.post("/api/attendance")
 def log_attendance(body: LogAttendanceBody):
-    now      = get_bangkok_now()
-    date_str = now.strftime("%Y-%m-%d")
-    time_str = now.strftime("%H:%M:%S")
+    now = get_bangkok_now()
+    date_str = body.manualDate if body.manualDate else now.strftime("%Y-%m-%d")
+    time_str = (body.manualTime + ":00") if body.manualTime else now.strftime("%H:%M:%S")
     log_id   = f"LOG-{int(now.timestamp() * 1000)}"
 
     conn = get_db()

@@ -118,15 +118,14 @@ export default function App() {
   const [adminError,   setAdminError]   = useState(null);
 
   // --- Manual attendance entry ---
-  const [attEmpId,     setAttEmpId]     = useState('');
-  const [attDate,      setAttDate]      = useState('');
-  const [attIn,        setAttIn]        = useState('');
-  const [attBreakOut,  setAttBreakOut]  = useState('');
-  const [attBreakIn,   setAttBreakIn]   = useState('');
-  const [attOut,       setAttOut]       = useState('');
-  const [attSaving,    setAttSaving]    = useState(false);
-  const [attSuccess,   setAttSuccess]   = useState(null);
-  const [attError,     setAttError]     = useState(null);
+  const [attEmpId,  setAttEmpId]  = useState('');
+  const [attDate,   setAttDate]   = useState(() => new Date().toISOString().slice(0, 10));
+  const [attIn,     setAttIn]     = useState('');
+  const [attOut,    setAttOut]    = useState('');
+  const [attNote,   setAttNote]   = useState('');
+  const [attSaving, setAttSaving] = useState(false);
+  const [attSuccess,setAttSuccess]= useState(null);
+  const [attError,  setAttError]  = useState(null);
 
   // --- OT tab ---
   const [otEmpId,  setOtEmpId]  = useState('');
@@ -272,24 +271,15 @@ export default function App() {
   //  Manual attendance
   // ============================================================
   async function handleSubmitAttendance() {
-    if (!attEmpId || !attDate) return;
+    if (!attEmpId || !attDate || !attIn) return;
     setAttSaving(true);
     setAttSuccess(null);
     setAttError(null);
     const emp = employees.find(e => e.employeeId === attEmpId);
     const actions = [
-      attIn       && { action: 'เข้างาน',    time: attIn },
-      attBreakOut && { action: 'พักเที่ยง',   time: attBreakOut },
-      attBreakIn  && { action: 'เข้างานบ่าย', time: attBreakIn },
-      attOut      && { action: 'ออกงาน',      time: attOut },
+      { action: 'เข้างาน', time: attIn },
+      attOut && { action: 'ออกงาน', time: attOut },
     ].filter(Boolean);
-
-    if (actions.length === 0) {
-      setAttError('กรุณาใส่เวลาอย่างน้อย 1 ช่อง');
-      setAttSaving(false);
-      return;
-    }
-
     try {
       for (const { action, time } of actions) {
         await api.logAttendance({
@@ -297,17 +287,32 @@ export default function App() {
           employeeName:    emp?.name || attEmpId,
           actionType:      action,
           confidenceScore: 0,
-          deviceId:        `manual-${attDate}-${time}`,
+          deviceId:        'manual',
+          manualDate:      attDate,
+          manualTime:      time,
+          note:            attNote.trim(),
         });
       }
-      setAttSuccess(`บันทึกเวลา ${emp?.name || attEmpId} วันที่ ${attDate} สำเร็จ (${actions.length} รายการ)`);
-      setAttIn(''); setAttBreakOut(''); setAttBreakIn(''); setAttOut('');
+      const hrs = calcNetHours(attIn, attOut);
+      setAttSuccess(`บันทึก ${emp?.name || attEmpId} วันที่ ${attDate} สำเร็จ${hrs ? ` — ทำงาน ${hrs} ชม.` : ''}`);
+      setAttIn(''); setAttOut(''); setAttNote('');
     } catch (err) {
       setAttError('บันทึกไม่สำเร็จ กรุณาลองใหม่');
       console.error(err);
     } finally {
       setAttSaving(false);
     }
+  }
+
+  function calcNetHours(timeIn, timeOut) {
+    if (!timeIn || !timeOut) return null;
+    const [ih, im] = timeIn.split(':').map(Number);
+    const [oh, om] = timeOut.split(':').map(Number);
+    const mins = (oh * 60 + om) - (ih * 60 + im) - 60; // หัก 1 ชม.พักเที่ยง
+    if (mins <= 0) return null;
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return m > 0 ? `${h}:${String(m).padStart(2, '0')}` : `${h}`;
   }
 
   // ============================================================
@@ -456,84 +461,143 @@ export default function App() {
   //  Render: Dashboard
   // ============================================================
   const renderDashboard = () => (
-    <div className="flex flex-col gap-6 animate-fade-in">
-      <div>
-        <h2 className="text-2xl font-bold text-[#222222]">ภาพรวม</h2>
-        <p className="text-slate-400 text-sm mt-0.5">{formatDate(currentTime)}</p>
+    <div className="flex flex-col gap-5">
+
+      {/* Header */}
+      <div className="bg-[#222222] text-white rounded-3xl px-7 py-6 flex items-center justify-between">
+        <div>
+          <p className="text-white/50 text-sm font-medium mb-1">ยินดีต้อนรับ</p>
+          <h2 className="text-2xl font-bold tracking-tight">ระบบจัดการค่าแรง</h2>
+          <p className="text-white/60 text-sm mt-1">{formatDate(currentTime)}</p>
+        </div>
+        <div className="text-right">
+          <p className="text-4xl font-bold font-mono tracking-tight">{formatTime(currentTime)}</p>
+        </div>
       </div>
 
       {/* Stat cards */}
       <div className="grid grid-cols-3 gap-4">
-        <div className="bg-white rounded-2xl border border-slate-100 p-5">
-          <p className="text-slate-400 text-sm mb-1">พนักงานทั้งหมด</p>
-          <p className="text-3xl font-bold text-[#222222]">{employees.length} <span className="text-base font-normal text-slate-400">คน</span></p>
+        {/* พนักงาน */}
+        <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 flex flex-col gap-3">
+          <div className="bg-[#7B8CFA]/10 w-10 h-10 rounded-2xl flex items-center justify-center">
+            <IconEmployees />
+          </div>
+          <div>
+            <p className="text-slate-400 text-sm">พนักงานทั้งหมด</p>
+            <p className="text-3xl font-bold text-[#222222] mt-0.5">{employees.length}<span className="text-base font-normal text-slate-400 ml-1">คน</span></p>
+          </div>
         </div>
-        <div className={`rounded-2xl border p-5 ${unpaidCount > 0 ? 'bg-amber-50 border-amber-200' : 'bg-white border-slate-100'}`}>
-          <p className={`text-sm mb-1 ${unpaidCount > 0 ? 'text-amber-600' : 'text-slate-400'}`}>งวดที่ยังไม่ได้จ่าย</p>
-          <p className={`text-3xl font-bold ${unpaidCount > 0 ? 'text-amber-700' : 'text-[#222222]'}`}>{unpaidCount} <span className="text-base font-normal">งวด</span></p>
+
+        {/* งวดค้าง */}
+        <div className={`rounded-3xl border shadow-sm p-6 flex flex-col gap-3 ${unpaidCount > 0 ? 'bg-amber-50 border-amber-200' : 'bg-white border-slate-100'}`}>
+          <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${unpaidCount > 0 ? 'bg-amber-200/60' : 'bg-slate-100'}`}>
+            <IconPayroll />
+          </div>
+          <div>
+            <p className={`text-sm ${unpaidCount > 0 ? 'text-amber-600' : 'text-slate-400'}`}>งวดที่ยังไม่ได้จ่าย</p>
+            <p className={`text-3xl font-bold mt-0.5 ${unpaidCount > 0 ? 'text-amber-700' : 'text-[#222222]'}`}>{unpaidCount}<span className="text-base font-normal ml-1">งวด</span></p>
+          </div>
         </div>
-        <div className="bg-white rounded-2xl border border-slate-100 p-5">
-          <p className="text-slate-400 text-sm mb-1">สัปดาห์ปัจจุบัน</p>
-          <p className="text-xl font-bold text-[#222222]">{api.getCurrentWeekStr()}</p>
+
+        {/* สัปดาห์ */}
+        <div className="bg-[#7B8CFA] rounded-3xl shadow-sm p-6 flex flex-col gap-3">
+          <div className="bg-white/20 w-10 h-10 rounded-2xl flex items-center justify-center">
+            <IconClock />
+          </div>
+          <div>
+            <p className="text-white/70 text-sm">สัปดาห์ปัจจุบัน</p>
+            <p className="text-2xl font-bold text-white mt-0.5">{api.getCurrentWeekStr()}</p>
+          </div>
         </div>
+      </div>
+
+      {/* Quick actions */}
+      <div className="grid grid-cols-2 gap-4">
+        {[
+          {
+            tab: 'ATTENDANCE',
+            label: 'บันทึกเวลา',
+            sub: 'กรอกเวลาเข้า-ออกพนักงาน',
+            bg: 'bg-[#7B8CFA]',
+            icon: <IconClock />,
+          },
+          {
+            tab: 'OT',
+            label: 'บันทึก OT',
+            sub: 'เพิ่มชั่วโมงล่วงเวลา',
+            bg: 'bg-[#F59E0B]',
+            icon: <IconOT />,
+          },
+          {
+            tab: 'PAYROLL',
+            label: 'งวดค่าแรง',
+            sub: 'สร้างงวดและคำนวณค่าแรง',
+            bg: 'bg-[#10B981]',
+            icon: <IconPayroll />,
+          },
+          {
+            tab: 'EMPLOYEES',
+            label: 'พนักงาน',
+            sub: 'จัดการข้อมูลพนักงาน',
+            bg: 'bg-[#6366F1]',
+            icon: <IconEmployees />,
+          },
+        ].map(({ tab, label, sub, bg, icon }) => (
+          <button key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`${bg} text-white rounded-3xl p-6 text-left relative overflow-hidden active:scale-[0.98] transition-all cursor-pointer shadow-sm`}>
+            <div className="absolute -bottom-4 -right-4 opacity-20 w-24 h-24">{icon}</div>
+            <p className="text-xl font-bold mb-1">{label}</p>
+            <p className="text-white/70 text-sm">{sub}</p>
+          </button>
+        ))}
       </div>
 
       {/* Latest period */}
       {latestPeriod && (
-        <div className="bg-white rounded-2xl border border-slate-100 p-5">
-          <p className="font-semibold text-slate-600 mb-3">งวดล่าสุด</p>
+        <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6">
+          <p className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-3">งวดล่าสุด</p>
           <div className="flex items-center justify-between">
             <div>
-              <p className="font-bold text-[#222222]">{latestPeriod.startDate} — {latestPeriod.endDate}</p>
+              <p className="font-bold text-[#222222] text-base">{latestPeriod.startDate} — {latestPeriod.endDate}</p>
               <p className="text-slate-400 text-sm mt-0.5">สร้างเมื่อ {latestPeriod.createdAt?.slice(0, 10)}</p>
             </div>
             <div className="flex items-center gap-3">
               <span className="text-xl font-bold text-[#7B8CFA]">{formatMoney(latestPeriod.grandTotal)}</span>
               {latestPeriod.status === 'Paid'
-                ? <span className="bg-green-100 text-green-600 text-sm font-bold px-3 py-1 rounded-full">จ่ายแล้ว</span>
-                : <span className="bg-amber-100 text-amber-700 text-sm font-bold px-3 py-1 rounded-full">ยังไม่จ่าย</span>
+                ? <span className="bg-emerald-100 text-emerald-600 text-xs font-bold px-3 py-1.5 rounded-full">จ่ายแล้ว</span>
+                : <button onClick={() => setActiveTab('PAYROLL')} className="bg-amber-100 text-amber-700 text-xs font-bold px-3 py-1.5 rounded-full cursor-pointer hover:bg-amber-200 transition-colors">ยังไม่จ่าย →</button>
               }
             </div>
           </div>
         </div>
       )}
 
-      {/* Quick actions */}
-      <div>
-        <p className="font-semibold text-slate-600 mb-3">เข้าถึงด่วน</p>
-        <div className="grid grid-cols-2 gap-3">
-          {[
-            { tab: 'ATTENDANCE', label: 'บันทึกเวลาพนักงาน', color: 'bg-[#7B8CFA]' },
-            { tab: 'OT',         label: 'บันทึก OT',         color: 'bg-[#F59E0B]' },
-            { tab: 'PAYROLL',    label: 'สร้างงวดค่าแรง',     color: 'bg-[#10B981]' },
-            { tab: 'EMPLOYEES',  label: 'จัดการพนักงาน',      color: 'bg-[#6366F1]' },
-          ].map(({ tab, label, color }) => (
-            <button key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`${color} text-white font-bold py-4 px-5 rounded-2xl text-left hover:opacity-90 active:scale-[0.98] transition-all cursor-pointer`}>
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
     </div>
   );
 
   // ============================================================
   //  Render: Attendance Log
   // ============================================================
-  const renderAttendance = () => (
+  const renderAttendance = () => {
+    const netHours = calcNetHours(attIn, attOut);
+    return (
     <div className="flex flex-col gap-6 animate-fade-in">
       <h2 className="text-2xl font-bold text-[#222222]">บันทึกเวลา</h2>
 
       {/* Manual entry form */}
-      <div className="bg-[#F8FAFC] rounded-2xl border border-slate-100 p-5 flex flex-col gap-4">
-        <p className="font-semibold text-slate-600">กรอกเวลาพนักงาน</p>
-        <div className="grid grid-cols-2 gap-3">
+      <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 flex flex-col gap-5">
+        <div>
+          <p className="font-bold text-[#222222]">กรอกเวลาพนักงาน</p>
+          <p className="text-slate-400 text-sm mt-0.5">ระบบหักพักเที่ยง 1 ชม. อัตโนมัติ</p>
+        </div>
+
+        {/* Row 1: พนักงาน + วันที่ */}
+        <div className="grid grid-cols-2 gap-4">
           <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium text-slate-500">พนักงาน *</label>
+            <label className="text-sm font-semibold text-slate-500">พนักงาน *</label>
             <select value={attEmpId} onChange={e => { setAttEmpId(e.target.value); setAttSuccess(null); setAttError(null); }}
-              className="bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-base outline-none focus:border-[#7B8CFA] cursor-pointer">
+              className="bg-[#F8FAFC] border border-slate-200 rounded-2xl px-4 py-3 text-base outline-none focus:border-[#7B8CFA] cursor-pointer">
               <option value="">-- เลือกพนักงาน --</option>
               {employees.map(emp => (
                 <option key={emp.employeeId} value={emp.employeeId}>{emp.name}</option>
@@ -541,32 +605,50 @@ export default function App() {
             </select>
           </div>
           <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium text-slate-500">วันที่ *</label>
+            <label className="text-sm font-semibold text-slate-500">วันที่ *</label>
             <input type="date" value={attDate} onChange={e => { setAttDate(e.target.value); setAttSuccess(null); setAttError(null); }}
-              className="bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-base outline-none focus:border-[#7B8CFA]" />
+              className="bg-[#F8FAFC] border border-slate-200 rounded-2xl px-4 py-3 text-base outline-none focus:border-[#7B8CFA]" />
           </div>
         </div>
-        <div className="grid grid-cols-4 gap-3">
-          {[
-            { label: 'เข้างาน',    value: attIn,       set: setAttIn },
-            { label: 'พักเที่ยง',  value: attBreakOut, set: setAttBreakOut },
-            { label: 'กลับพัก',   value: attBreakIn,  set: setAttBreakIn },
-            { label: 'ออกงาน',     value: attOut,      set: setAttOut },
-          ].map(({ label, value, set }) => (
-            <div key={label} className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium text-slate-500">{label}</label>
-              <input type="time" value={value} onChange={e => { set(e.target.value); setAttSuccess(null); setAttError(null); }}
-                className="bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-base outline-none focus:border-[#7B8CFA]" />
-            </div>
-          ))}
+
+        {/* Row 2: เวลาเข้า + เวลาออก + preview */}
+        <div className="flex gap-4 items-end">
+          <div className="flex flex-col gap-1.5 flex-1">
+            <label className="text-sm font-semibold text-slate-500">เวลาเข้างาน *</label>
+            <input type="time" value={attIn} onChange={e => { setAttIn(e.target.value); setAttSuccess(null); setAttError(null); }}
+              className="bg-[#F8FAFC] border border-slate-200 rounded-2xl px-4 py-3 text-base outline-none focus:border-[#7B8CFA]" />
+          </div>
+          <div className="flex flex-col gap-1.5 flex-1">
+            <label className="text-sm font-semibold text-slate-500">เวลาออกงาน</label>
+            <input type="time" value={attOut} onChange={e => { setAttOut(e.target.value); setAttSuccess(null); setAttError(null); }}
+              className="bg-[#F8FAFC] border border-slate-200 rounded-2xl px-4 py-3 text-base outline-none focus:border-[#7B8CFA]" />
+          </div>
+          {/* Hours preview */}
+          <div className={`flex-1 rounded-2xl px-4 py-3 text-center ${netHours ? 'bg-[#7B8CFA]/10 border border-[#7B8CFA]/20' : 'bg-slate-50 border border-slate-100'}`}>
+            <p className="text-xs text-slate-400 mb-0.5">ชม.สุทธิ (หัก 1 ชม.)</p>
+            <p className={`text-xl font-bold ${netHours ? 'text-[#7B8CFA]' : 'text-slate-300'}`}>{netHours || '—'}</p>
+          </div>
         </div>
+
+        {/* Row 3: หมายเหตุ */}
+        <div className="flex flex-col gap-1.5">
+          <label className="text-sm font-semibold text-slate-500">หมายเหตุ <span className="font-normal text-slate-400">(ไม่บังคับ)</span></label>
+          <input type="text" value={attNote} placeholder="เช่น ลางาน ครึ่งวัน, มาสาย"
+            onChange={e => { setAttNote(e.target.value); setAttSuccess(null); setAttError(null); }}
+            className="bg-[#F8FAFC] border border-slate-200 rounded-2xl px-4 py-3 text-base outline-none focus:border-[#7B8CFA]" />
+        </div>
+
+        {/* Submit */}
         <div className="flex items-center gap-3">
           <button onClick={handleSubmitAttendance}
-            disabled={!attEmpId || !attDate || attSaving}
-            className="bg-[#7B8CFA] disabled:opacity-40 text-white font-bold px-6 py-2.5 rounded-xl cursor-pointer active:scale-95 transition-transform flex items-center gap-2">
-            {attSaving ? <><div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />กำลังบันทึก...</> : 'บันทึก'}
+            disabled={!attEmpId || !attDate || !attIn || attSaving}
+            className="bg-[#7B8CFA] disabled:opacity-40 text-white font-bold px-8 py-3 rounded-2xl cursor-pointer active:scale-95 transition-transform flex items-center gap-2">
+            {attSaving
+              ? <><div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />กำลังบันทึก...</>
+              : 'บันทึก'
+            }
           </button>
-          {attSuccess && <p className="text-emerald-600 font-medium text-sm">{attSuccess}</p>}
+          {attSuccess && <p className="text-emerald-600 font-medium text-sm">✓ {attSuccess}</p>}
           {attError   && <p className="text-red-500 font-medium text-sm">{attError}</p>}
         </div>
       </div>
@@ -608,7 +690,7 @@ export default function App() {
             <table className="w-full text-left border-collapse text-sm">
               <thead className="bg-[#F8FAFC] text-slate-500 sticky top-0">
                 <tr>
-                  {['วันที่','รหัส','ชื่อ-สกุล','เข้างาน','พักเที่ยง','กลับพัก','ออกงาน','ชม.สุทธิ','สถานะ'].map(h => (
+                  {['วันที่','รหัส','ชื่อ-สกุล','เข้างาน','ออกงาน','ชม.สุทธิ','สถานะ'].map(h => (
                     <th key={h} className="px-4 py-3 font-bold border-b border-slate-100 whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -620,8 +702,6 @@ export default function App() {
                     <td className="px-4 py-3 font-mono text-slate-400">{log.employeeId}</td>
                     <td className="px-4 py-3 font-bold text-[#222222]">{log.name}</td>
                     <td className="px-4 py-3 font-mono text-center">{log.in || '-'}</td>
-                    <td className="px-4 py-3 font-mono text-center text-slate-400">{log.breakOut || '-'}</td>
-                    <td className="px-4 py-3 font-mono text-center text-slate-400">{log.breakIn || '-'}</td>
                     <td className="px-4 py-3 font-mono text-center">{log.out || '-'}</td>
                     <td className="px-4 py-3 text-center font-bold text-[#7B8CFA]">{log.workedHours || '-'}</td>
                     <td className="px-4 py-3 text-center">
@@ -658,6 +738,7 @@ export default function App() {
       )}
     </div>
   );
+  };
 
   // ============================================================
   //  Render: OT
