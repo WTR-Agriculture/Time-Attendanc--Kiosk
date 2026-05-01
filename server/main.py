@@ -828,25 +828,85 @@ def save_attendance_day(body: AttendanceDayBody):
     return {"success": True}
 
 # ============================================================
+#  Piece Rate Categories
+# ============================================================
+class PieceRateCategoryBody(BaseModel):
+    name:         str
+    hasLength:    bool  = False
+    extraPerUnit: float = 0
+    baseLength:   float = 0
+
+@app.get("/api/piece_rate/categories")
+def get_piece_rate_categories():
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT Id, Name, HasLength, ExtraPerUnit, BaseLength
+        FROM PieceRateCategories WHERE IsActive = 1 ORDER BY Name
+    """)
+    cats = [{"id": r[0], "name": r[1], "hasLength": bool(r[2]),
+             "extraPerUnit": float(r[3]), "baseLength": float(r[4])} for r in cursor.fetchall()]
+    conn.close()
+    return {"categories": cats}
+
+@app.post("/api/piece_rate/categories")
+def create_piece_rate_category(body: PieceRateCategoryBody):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO PieceRateCategories (Name, HasLength, ExtraPerUnit, BaseLength)
+        VALUES (?, ?, ?, ?)
+    """, body.name, 1 if body.hasLength else 0, body.extraPerUnit, body.baseLength)
+    conn.commit()
+    conn.close()
+    return {"success": True}
+
+@app.put("/api/piece_rate/categories/{cat_id}")
+def update_piece_rate_category(cat_id: int, body: PieceRateCategoryBody):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE PieceRateCategories SET Name=?, HasLength=?, ExtraPerUnit=?, BaseLength=?
+        WHERE Id=?
+    """, body.name, 1 if body.hasLength else 0, body.extraPerUnit, body.baseLength, cat_id)
+    conn.commit()
+    conn.close()
+    return {"success": True}
+
+@app.delete("/api/piece_rate/categories/{cat_id}")
+def delete_piece_rate_category(cat_id: int):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE PieceRateCategories SET IsActive=0 WHERE Id=?", cat_id)
+    conn.commit()
+    conn.close()
+    return {"success": True}
+
+# ============================================================
 #  Piece Rate Jobs
 # ============================================================
 class PieceRateJobBody(BaseModel):
-    jobName:      str
-    unit:         str
-    basePrice:    float
-    baseLength:   float = 0
-    extraPerUnit: float = 0
+    jobName:    str
+    unit:       str
+    basePrice:  float
+    categoryId: Optional[int] = None
 
 @app.get("/api/piece_rate/jobs")
 def get_piece_rate_jobs():
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT Id, JobName, Unit, BasePrice, BaseLength, ExtraPerUnit
-        FROM PieceRateMaster WHERE IsActive = 1 ORDER BY JobName
+        SELECT m.Id, m.JobName, m.Unit, m.BasePrice, m.CategoryId,
+               c.Name, c.HasLength, c.ExtraPerUnit, c.BaseLength
+        FROM PieceRateMaster m
+        LEFT JOIN PieceRateCategories c ON m.CategoryId = c.Id
+        WHERE m.IsActive = 1 ORDER BY c.Name, m.JobName
     """)
     jobs = [{"id": r[0], "jobName": r[1], "unit": r[2], "basePrice": float(r[3]),
-             "baseLength": float(r[4]), "extraPerUnit": float(r[5])} for r in cursor.fetchall()]
+             "categoryId": r[4], "categoryName": r[5] or "",
+             "hasLength": bool(r[6]) if r[6] is not None else False,
+             "extraPerUnit": float(r[7]) if r[7] is not None else 0.0,
+             "baseLength": float(r[8]) if r[8] is not None else 0.0} for r in cursor.fetchall()]
     conn.close()
     return {"jobs": jobs}
 
@@ -855,9 +915,9 @@ def create_piece_rate_job(body: PieceRateJobBody):
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute("""
-        INSERT INTO PieceRateMaster (JobName, Unit, BasePrice, BaseLength, ExtraPerUnit)
-        VALUES (?, ?, ?, ?, ?)
-    """, body.jobName, body.unit, body.basePrice, body.baseLength, body.extraPerUnit)
+        INSERT INTO PieceRateMaster (JobName, Unit, BasePrice, CategoryId, BaseLength, ExtraPerUnit)
+        VALUES (?, ?, ?, ?, 0, 0)
+    """, body.jobName, body.unit, body.basePrice, body.categoryId)
     conn.commit()
     conn.close()
     return {"success": True}
@@ -867,10 +927,9 @@ def update_piece_rate_job(job_id: int, body: PieceRateJobBody):
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute("""
-        UPDATE PieceRateMaster
-        SET JobName=?, Unit=?, BasePrice=?, BaseLength=?, ExtraPerUnit=?
+        UPDATE PieceRateMaster SET JobName=?, Unit=?, BasePrice=?, CategoryId=?
         WHERE Id=?
-    """, body.jobName, body.unit, body.basePrice, body.baseLength, body.extraPerUnit, job_id)
+    """, body.jobName, body.unit, body.basePrice, body.categoryId, job_id)
     conn.commit()
     conn.close()
     return {"success": True}

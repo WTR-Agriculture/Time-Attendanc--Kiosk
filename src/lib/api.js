@@ -182,6 +182,28 @@ export async function saveAttendanceDay({ employeeId, employeeName, date, inTime
 // ============================================================
 //  Piece Rate
 // ============================================================
+export async function getPieceRateCategories() {
+  return apiGet('/api/piece_rate/categories');
+}
+
+export async function createPieceRateCategory(body) {
+  return apiPost('/api/piece_rate/categories', body);
+}
+
+export async function updatePieceRateCategory(id, body) {
+  const res = await fetch(`${API_URL}/api/piece_rate/categories/${id}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`API PUT error: ${res.status}`);
+  return res.json();
+}
+
+export async function deletePieceRateCategory(id) {
+  const res = await fetch(`${API_URL}/api/piece_rate/categories/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`API DELETE error: ${res.status}`);
+  return res.json();
+}
+
 export async function getPieceRateJobs() {
   return apiGet('/api/piece_rate/jobs');
 }
