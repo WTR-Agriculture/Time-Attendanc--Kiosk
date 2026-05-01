@@ -1,0 +1,560 @@
+import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import * as XLSX from 'xlsx';
+import * as api from '../lib/api';
+
+const fmt = (n) => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtB = (n) => '฿' + fmt(n);
+const inputCls = 'bg-[#F8FAFC] border border-slate-200 rounded-2xl px-4 py-3 text-base outline-none focus:border-[#7B8CFA] w-full';
+
+const IconTrash = () => (
+  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
+      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+  </svg>
+);
+const IconChevron = ({ open }) => (
+  <svg className={`w-4 h-4 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+  </svg>
+);
+
+const Modal = ({ children, onClose }) => createPortal(
+  <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/40 px-0 sm:px-4"
+    onClick={onClose}>
+    <div className="bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl shadow-xl p-6 flex flex-col gap-4 max-h-[90vh] overflow-y-auto"
+      onClick={e => e.stopPropagation()}>
+      {children}
+    </div>
+  </div>,
+  document.body
+);
+
+export default function PayrollPeriodDetail({ period, employees, onClose, onPaid }) {
+  const [detail, setDetail]     = useState(null);
+  const [loading, setLoading]   = useState(true);
+  const [jobs, setJobs]         = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [paying, setPaying]     = useState(false);
+  const [expanded, setExpanded] = useState({});
+
+  // piece rate modal state
+  const [addingFor, setAddingFor] = useState(null);
+  const [fJobId,  setFJobId]  = useState('');
+  const [fQty,    setFQty]    = useState('');
+  const [fLen,    setFLen]    = useState('');
+  const [fNote,   setFNote]   = useState('');
+  const [queue,   setQueue]   = useState([]);
+  const [saving,  setSaving]  = useState(false);
+  const [saveOk,  setSaveOk]  = useState(false);
+
+  useEffect(() => { loadDetail(); loadJobs(); }, [period.id]);
+
+  const loadDetail = async () => {
+    setLoading(true);
+    try {
+      const r = await api.getPayrollPeriodDetail(period.id);
+      setDetail(r);
+      const init = {};
+      (r.items || []).forEach(item => { init[item.employeeId] = item.pieceLogs?.length > 0; });
+      setExpanded(init);
+    } catch (err) { console.error(err); }
+    setLoading(false);
+  };
+
+  const loadJobs = async () => {
+    try {
+      const [jd, cd] = await Promise.all([api.getPieceRateJobs(), api.getPieceRateCategories()]);
+      setJobs(jd.jobs || []);
+      setCategories(cd.categories || []);
+    } catch {}
+  };
+
+  // ── Piece rate modal ──
+  const selectedJob = jobs.find(j => j.id === Number(fJobId));
+  const calcPrice = (job, qty, len) => {
+    if (!job) return { unitPrice: 0, totalAmount: 0 };
+    const extra = job.hasLength
+      ? Math.max(0, (parseFloat(len) || 0) - job.baseLength) * job.extraPerUnit
+      : 0;
+    const unitPrice = job.basePrice + extra;
+    return { unitPrice, totalAmount: unitPrice * (parseFloat(qty) || 0) };
+  };
+  const { unitPrice, totalAmount } = calcPrice(selectedJob, fQty, fLen);
+
+  const openModal = (item) => {
+    setAddingFor(item);
+    setFJobId(''); setFQty(''); setFLen(''); setFNote('');
+    setQueue([]);
+  };
+  const closeModal = () => { setAddingFor(null); setQueue([]); };
+
+  const handleAddToQueue = () => {
+    if (!fJobId || !fQty) return;
+    const job = selectedJob;
+    const { unitPrice: up, totalAmount: ta } = calcPrice(job, fQty, fLen);
+    setQueue(prev => [...prev, {
+      id: Date.now(), jobId: job.id, jobName: job.jobName, unit: job.unit,
+      quantity: parseFloat(fQty),
+      unitLength: job.hasLength ? (parseFloat(fLen) || 0) : 0,
+      hasLength: job.hasLength, extraPerUnit: job.extraPerUnit,
+      unitPrice: up, totalAmount: ta, note: fNote,
+    }]);
+    setFJobId(''); setFQty(''); setFLen(''); setFNote('');
+  };
+
+  const handleSaveQueue = async () => {
+    if (!addingFor || queue.length === 0) return;
+    setSaving(true);
+    try {
+      await Promise.all(queue.map(item =>
+        api.addPeriodPieceRate(period.id, {
+          employeeId:   addingFor.employeeId,
+          employeeName: addingFor.name,
+          jobId:        item.jobId,
+          quantity:     item.quantity,
+          unitLength:   item.unitLength,
+          unitPrice:    item.unitPrice,
+          totalAmount:  item.totalAmount,
+          note:         item.note,
+        })
+      ));
+      setQueue([]);
+      setSaveOk(true);
+      setTimeout(() => setSaveOk(false), 2000);
+      await loadDetail();
+      setAddingFor(null);
+    } catch (err) { console.error(err); }
+    setSaving(false);
+  };
+
+  const handleDeletePieceLog = async (logId) => {
+    if (!confirm('ลบรายการนี้?')) return;
+    await api.deletePieceRateLog(logId);
+    await loadDetail();
+  };
+
+  // ── Pay period ──
+  const handlePay = async () => {
+    if (!confirm(`ยืนยันจ่ายงวด ${detail.startDate} — ${detail.endDate}?`)) return;
+    setPaying(true);
+    try {
+      await api.payPayrollPeriod(period.id);
+      await loadDetail();
+      onPaid?.();
+    } catch (err) { console.error(err); }
+    setPaying(false);
+  };
+
+  // ── Exports ──
+  const exportCSV = () => {
+    if (!detail) return;
+    const rows = [
+      [`งวดค่าแรง: ${detail.startDate} — ${detail.endDate}`],
+      [`สถานะ: ${detail.status === 'Paid' ? 'จ่ายแล้ว' : 'ยังไม่จ่าย'}`],
+      [],
+      ['ชื่อ', 'วันทำงาน', 'ค่าแรงปกติ', 'หักมาสาย', 'OT (฿)', 'งานเหมา (฿)', 'หักเบิก (฿)', 'สุทธิ (฿)'],
+      ...detail.items.map(i => [
+        i.name, i.workDays, i.baseAmount, -i.lateDeduction,
+        i.otAmount, i.pieceRateTotal, -i.advanceDeduction, i.netTotal,
+      ]),
+      [],
+      [`รวมสุทธิ`, '', '', '', '', '', '', detail.grandTotal],
+    ];
+    if (detail.items.some(i => i.pieceLogs?.length > 0)) {
+      rows.push([], ['── รายการงานเหมา ──']);
+      rows.push(['พนักงาน', 'รายการงาน', 'จำนวน', 'หน่วย', 'ความยาว(ศอก)', 'ราคา/หน่วย (฿)', 'รวม (฿)', 'หมายเหตุ']);
+      detail.items.forEach(item => {
+        item.pieceLogs?.forEach(log => {
+          rows.push([
+            item.name, log.jobName, log.quantity, log.unit,
+            log.unitLength > 0 ? log.unitLength : '',
+            log.unitPrice, log.totalAmount, log.note || '',
+          ]);
+        });
+      });
+    }
+    const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `payroll_${detail.startDate}_${detail.endDate}.csv`;
+    a.click(); URL.revokeObjectURL(url);
+  };
+
+  const exportXLSX = () => {
+    if (!detail) return;
+    const wb = XLSX.utils.book_new();
+
+    // Sheet 1: สรุป
+    const summaryAoa = [
+      [`งวดค่าแรง: ${detail.startDate} — ${detail.endDate}`],
+      [`สถานะ: ${detail.status === 'Paid' ? 'จ่ายแล้ว' : 'ยังไม่จ่าย'}`],
+      [],
+      ['ชื่อ', 'วันทำงาน', 'ค่าแรงปกติ', 'หักมาสาย', 'OT', 'งานเหมา', 'หักเบิก', 'สุทธิ'],
+      ...detail.items.map(i => [
+        i.name, i.workDays, i.baseAmount, i.lateDeduction,
+        i.otAmount, i.pieceRateTotal, i.advanceDeduction, i.netTotal,
+      ]),
+      [],
+      ['รวมสุทธิ', '', '', '', '', '', '', detail.grandTotal],
+    ];
+    const ws1 = XLSX.utils.aoa_to_sheet(summaryAoa);
+    ws1['!cols'] = [{ wch: 20 }, { wch: 10 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 14 }];
+    XLSX.utils.book_append_sheet(wb, ws1, 'สรุปค่าแรง');
+
+    // Sheet 2: งานเหมา (ถ้ามี)
+    const allPiece = [];
+    detail.items.forEach(item => {
+      item.pieceLogs?.forEach(log => {
+        allPiece.push([
+          item.name, log.jobName, log.quantity, log.unit,
+          log.unitLength > 0 ? log.unitLength : 0,
+          log.unitPrice, log.totalAmount, log.note || '',
+        ]);
+      });
+    });
+    if (allPiece.length > 0) {
+      const pieceAoa = [
+        ['พนักงาน', 'รายการงาน', 'จำนวน', 'หน่วย', 'ความยาว(ศอก)', 'ราคา/หน่วย', 'รวม', 'หมายเหตุ'],
+        ...allPiece,
+      ];
+      const ws2 = XLSX.utils.aoa_to_sheet(pieceAoa);
+      ws2['!cols'] = [{ wch: 20 }, { wch: 24 }, { wch: 10 }, { wch: 8 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 20 }];
+      XLSX.utils.book_append_sheet(wb, ws2, 'งานเหมา');
+    }
+
+    XLSX.writeFile(wb, `payroll_${detail.startDate}_${detail.endDate}.xlsx`);
+  };
+
+  const handlePrint = () => {
+    if (!detail) return;
+    const rows = detail.items.map(item => `
+      <tr>
+        <td>${item.name}</td>
+        <td style="text-align:center">${item.workDays}</td>
+        <td style="text-align:right">${fmt(item.baseAmount)}</td>
+        <td style="text-align:right;color:#ef4444">${item.lateDeduction > 0 ? `-${fmt(item.lateDeduction)}` : '-'}</td>
+        <td style="text-align:right;color:#10b981">${item.otAmount > 0 ? `+${fmt(item.otAmount)}` : '-'}</td>
+        <td style="text-align:right;color:#6366f1">${item.pieceRateTotal > 0 ? `+${fmt(item.pieceRateTotal)}` : '-'}</td>
+        <td style="text-align:right;color:#f59e0b">${item.advanceDeduction > 0 ? `-${fmt(item.advanceDeduction)}` : '-'}</td>
+        <td style="text-align:right;font-weight:bold">${fmt(item.netTotal)}</td>
+      </tr>
+      ${item.pieceLogs?.length > 0 ? `
+        <tr><td colspan="8" style="padding:4px 8px 0">
+          <small style="color:#6b7280">งานเหมา: ${item.pieceLogs.map(l =>
+            `${l.jobName} ×${l.quantity}${l.unitLength > 0 ? ` (${l.unitLength}ศอก)` : ''} = ฿${fmt(l.totalAmount)}`
+          ).join(' / ')}</small>
+        </td></tr>` : ''}
+    `).join('');
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+      <title>งวดค่าแรง ${detail.startDate} — ${detail.endDate}</title>
+      <style>
+        body { font-family: 'Sarabun', sans-serif; font-size: 13px; color: #111; margin: 20px; }
+        h2 { font-size: 18px; margin-bottom: 4px; }
+        p { margin: 2px 0 12px; color: #555; }
+        table { width: 100%; border-collapse: collapse; }
+        th { background: #f8fafc; padding: 8px 10px; text-align: left; font-weight: bold; border-bottom: 2px solid #e2e8f0; }
+        td { padding: 7px 10px; border-bottom: 1px solid #f1f5f9; }
+        tfoot td { font-weight: bold; border-top: 2px solid #e2e8f0; padding-top: 10px; }
+        @media print { body { margin: 10px; } }
+      </style></head><body>
+      <h2>งวดค่าแรง: ${detail.startDate} — ${detail.endDate}</h2>
+      <p>สถานะ: ${detail.status === 'Paid' ? '✓ จ่ายแล้ว' : 'ยังไม่จ่าย'}</p>
+      <table>
+        <thead><tr>
+          <th>ชื่อ</th><th>วันทำงาน</th><th>ค่าแรง</th>
+          <th>หักมาสาย</th><th>OT</th><th>งานเหมา</th><th>หักเบิก</th><th>สุทธิ (฿)</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+        <tfoot><tr>
+          <td colspan="7" style="text-align:right">รวมสุทธิทั้งหมด</td>
+          <td style="text-align:right">฿${fmt(detail.grandTotal)}</td>
+        </tr></tfoot>
+      </table>
+    </body></html>`;
+
+    const w = window.open('', '_blank');
+    w.document.write(html);
+    w.document.close();
+    setTimeout(() => { w.focus(); w.print(); }, 400);
+  };
+
+  // ── jobs grouped by category ──
+  const jobsByCategory = categories.map(cat => ({
+    ...cat,
+    jobs: jobs.filter(j => j.categoryId === cat.id),
+  }));
+  const uncategorized = jobs.filter(j => !j.categoryId);
+
+  const isPaid = detail?.status === 'Paid';
+
+  // ── Render ──
+  if (loading) return (
+    <div className="flex justify-center py-16 text-slate-400 gap-3">
+      <div className="w-6 h-6 border-4 border-slate-100 border-t-[#7B8CFA] rounded-full animate-spin" />
+      กำลังโหลด...
+    </div>
+  );
+  if (!detail) return null;
+
+  return (
+    <div className="flex flex-col gap-4">
+      {/* ── Header ── */}
+      <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-5 flex flex-col gap-3">
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider mb-1">งวดค่าแรง</p>
+            <h3 className="text-xl font-bold text-[#222222]">{detail.startDate} — {detail.endDate}</h3>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            {isPaid
+              ? <span className="bg-emerald-100 text-emerald-700 text-sm font-bold px-4 py-1.5 rounded-full">✓ จ่ายแล้ว</span>
+              : <button onClick={handlePay} disabled={paying}
+                  className="bg-[#C6F45D] text-[#222222] text-sm font-bold px-4 py-1.5 rounded-full cursor-pointer disabled:opacity-50 active:scale-95 transition-transform">
+                  {paying ? 'กำลังจ่าย...' : 'ยืนยันจ่าย'}
+                </button>
+            }
+            <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-sm cursor-pointer px-2">✕ ปิด</button>
+          </div>
+        </div>
+
+        {/* Grand total + Export buttons */}
+        <div className="flex items-center justify-between flex-wrap gap-3 pt-1 border-t border-slate-100">
+          <div>
+            <p className="text-xs text-slate-400">รวมสุทธิทั้งหมด</p>
+            <p className="text-2xl font-bold text-[#7B8CFA]">{fmtB(detail.grandTotal)}</p>
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            <button onClick={exportCSV}
+              className="bg-[#F8FAFC] border border-slate-200 text-slate-600 text-xs font-bold px-3 py-2 rounded-xl cursor-pointer hover:bg-slate-100 transition-colors flex items-center gap-1.5">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              CSV
+            </button>
+            <button onClick={exportXLSX}
+              className="bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold px-3 py-2 rounded-xl cursor-pointer hover:bg-emerald-100 transition-colors flex items-center gap-1.5">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              XLSX
+            </button>
+            <button onClick={handlePrint}
+              className="bg-[#7B8CFA]/10 border border-[#7B8CFA]/30 text-[#7B8CFA] text-xs font-bold px-3 py-2 rounded-xl cursor-pointer hover:bg-[#7B8CFA]/20 transition-colors flex items-center gap-1.5">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+              </svg>
+              Print / PDF
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Employee cards ── */}
+      <div className="flex flex-col gap-3">
+        {detail.items.map(item => {
+          const isOpen = expanded[item.employeeId];
+          return (
+            <div key={item.employeeId}
+              className="bg-white rounded-3xl border border-slate-100 shadow-sm p-5 flex flex-col gap-3">
+
+              {/* Employee header */}
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div>
+                  <p className="font-bold text-[#222222]">{item.name}</p>
+                  {item.department && <p className="text-xs text-slate-400 mt-0.5">{item.department}</p>}
+                </div>
+                <p className="text-xl font-bold text-[#7B8CFA]">{fmtB(item.netTotal)}</p>
+              </div>
+
+              {/* Wage breakdown chips */}
+              <div className="flex flex-wrap gap-2 text-xs">
+                <span className="bg-[#F8FAFC] rounded-xl px-3 py-1.5 text-slate-500">
+                  {item.workDays} วัน · {fmtB(item.baseAmount)}
+                </span>
+                {item.lateDeduction > 0 && (
+                  <span className="bg-red-50 text-red-500 rounded-xl px-3 py-1.5">
+                    มาสาย -{fmtB(item.lateDeduction)}
+                  </span>
+                )}
+                {item.otAmount > 0 && (
+                  <span className="bg-emerald-50 text-emerald-600 rounded-xl px-3 py-1.5">
+                    OT +{fmtB(item.otAmount)}
+                  </span>
+                )}
+                {item.pieceRateTotal > 0 && (
+                  <span className="bg-[#7B8CFA]/10 text-[#7B8CFA] rounded-xl px-3 py-1.5">
+                    เหมา +{fmtB(item.pieceRateTotal)}
+                  </span>
+                )}
+                {item.advanceDeduction > 0 && (
+                  <span className="bg-amber-50 text-amber-600 rounded-xl px-3 py-1.5">
+                    หักเบิก -{fmtB(item.advanceDeduction)}
+                  </span>
+                )}
+              </div>
+
+              {/* Piece rate section */}
+              <div className="border-t border-slate-100 pt-3 flex flex-col gap-2">
+                {/* Toggle header */}
+                <button
+                  onClick={() => setExpanded(prev => ({ ...prev, [item.employeeId]: !prev[item.employeeId] }))}
+                  className="flex items-center justify-between text-sm font-semibold text-slate-500 cursor-pointer hover:text-slate-700 transition-colors">
+                  <span>งานเหมา {item.pieceLogs?.length > 0 ? `(${item.pieceLogs.length} รายการ)` : '(ยังไม่มีรายการ)'}</span>
+                  {item.pieceLogs?.length > 0 && <IconChevron open={isOpen} />}
+                </button>
+
+                {/* Piece rate list */}
+                {isOpen && item.pieceLogs?.length > 0 && (
+                  <div className="flex flex-col gap-1.5">
+                    {item.pieceLogs.map(log => (
+                      <div key={log.id}
+                        className="bg-[#F8FAFC] rounded-2xl px-4 py-2.5 flex items-center justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-[#222222] truncate">{log.jobName}</p>
+                          <p className="text-xs text-slate-400 mt-0.5">
+                            {log.quantity} {log.unit}
+                            {log.unitLength > 0 ? ` · ${log.unitLength} ศอก` : ''}
+                            {' · '}฿{fmt(log.unitPrice)}/หน่วย
+                            {log.note ? ` · ${log.note}` : ''}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2.5 flex-shrink-0">
+                          <p className="text-sm font-bold text-[#7B8CFA]">{fmtB(log.totalAmount)}</p>
+                          {!isPaid && (
+                            <button onClick={() => handleDeletePieceLog(log.id)}
+                              className="text-slate-300 hover:text-red-400 transition-colors cursor-pointer">
+                              <IconTrash />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Add piece rate button */}
+                {!isPaid && (
+                  <button onClick={() => { openModal(item); setExpanded(prev => ({ ...prev, [item.employeeId]: true })); }}
+                    className="self-start bg-[#7B8CFA]/10 text-[#7B8CFA] text-sm font-bold px-4 py-2 rounded-2xl cursor-pointer hover:bg-[#7B8CFA]/20 transition-colors active:scale-95">
+                    + เพิ่มงานเหมา
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ── Piece rate modal ── */}
+      {addingFor && (
+        <Modal onClose={closeModal}>
+          <div>
+            <h2 className="text-xl font-bold text-[#222222]">เพิ่มงานเหมา</h2>
+            <p className="text-sm text-slate-500 mt-0.5">พนักงาน: <span className="font-semibold text-[#222222]">{addingFor.name}</span></p>
+          </div>
+
+          {/* Job selector */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-semibold text-slate-500">รายการงาน *</label>
+            <select value={fJobId} onChange={e => { setFJobId(e.target.value); setFLen(''); }} className={inputCls}>
+              <option value="">-- เลือกรายการ --</option>
+              {jobsByCategory.map(cat =>
+                cat.jobs.length > 0 && (
+                  <optgroup key={cat.id} label={cat.name}>
+                    {cat.jobs.map(j => (
+                      <option key={j.id} value={j.id}>{j.jobName} ({j.unit})</option>
+                    ))}
+                  </optgroup>
+                )
+              )}
+              {uncategorized.length > 0 && (
+                <optgroup label="ไม่มีหมวด">
+                  {uncategorized.map(j => (
+                    <option key={j.id} value={j.id}>{j.jobName} ({j.unit})</option>
+                  ))}
+                </optgroup>
+              )}
+            </select>
+          </div>
+
+          {/* Qty / Length / Note */}
+          <div className={`grid gap-3 ${selectedJob?.hasLength ? 'grid-cols-3' : 'grid-cols-2'}`}>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-semibold text-slate-500">
+                จำนวน ({selectedJob?.unit || 'หน่วย'}) *
+              </label>
+              <input type="number" min="0" value={fQty} onChange={e => setFQty(e.target.value)}
+                placeholder="0" className={inputCls} />
+            </div>
+            {selectedJob?.hasLength && (
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-semibold text-slate-500">
+                  ความยาว (ศอก)
+                </label>
+                <input type="number" min="0" value={fLen} onChange={e => setFLen(e.target.value)}
+                  placeholder="0" className={inputCls} />
+              </div>
+            )}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-semibold text-slate-500">หมายเหตุ</label>
+              <input type="text" value={fNote} onChange={e => setFNote(e.target.value)}
+                placeholder="ไม่บังคับ" className={inputCls} />
+            </div>
+          </div>
+
+          {/* Price preview */}
+          {selectedJob && fQty && (
+            <div className="bg-[#7B8CFA]/8 border border-[#7B8CFA]/20 rounded-2xl px-4 py-2.5 flex justify-between items-center">
+              <p className="text-sm text-slate-500">
+                {fQty} {selectedJob.unit} × {fmtB(unitPrice)}
+                {selectedJob.hasLength && fLen ? ` (+${fLen}ศอก×${selectedJob.extraPerUnit})` : ''}
+              </p>
+              <p className="font-bold text-[#7B8CFA]">{fmtB(totalAmount)}</p>
+            </div>
+          )}
+
+          <button onClick={handleAddToQueue}
+            disabled={!fJobId || !fQty}
+            className="bg-[#10B981] disabled:opacity-40 text-white font-bold px-5 py-2.5 rounded-2xl cursor-pointer active:scale-95 transition-transform self-start text-sm">
+            + เพิ่มเข้ารายการรอ
+          </button>
+
+          {/* Queue */}
+          {queue.length > 0 && (
+            <div className="bg-[#F8FAFC] rounded-2xl p-4 flex flex-col gap-2">
+              <p className="text-sm font-semibold text-slate-500">รอบันทึก ({queue.length} รายการ)</p>
+              {queue.map(item => (
+                <div key={item.id} className="flex items-center justify-between gap-2">
+                  <p className="text-sm text-[#222222] flex-1 truncate">
+                    {item.jobName} · {item.quantity} {item.unit}
+                    {item.hasLength && item.unitLength > 0 ? ` · ${item.unitLength}ศอก` : ''}
+                  </p>
+                  <p className="text-sm font-bold text-[#10B981] flex-shrink-0">{fmtB(item.totalAmount)}</p>
+                  <button onClick={() => setQueue(q => q.filter(x => x.id !== item.id))}
+                    className="text-slate-300 hover:text-red-400 cursor-pointer flex-shrink-0"><IconTrash /></button>
+                </div>
+              ))}
+              <p className="text-xs text-slate-400 pt-1 border-t border-slate-200">
+                รวม {fmtB(queue.reduce((s, q) => s + q.totalAmount, 0))}
+              </p>
+            </div>
+          )}
+
+          <div className="flex gap-3 pt-1">
+            <button onClick={closeModal}
+              className="flex-1 bg-slate-100 text-slate-600 font-bold py-3 rounded-2xl cursor-pointer">ยกเลิก</button>
+            <button onClick={handleSaveQueue}
+              disabled={queue.length === 0 || saving}
+              className="flex-1 bg-[#7B8CFA] disabled:opacity-40 text-white font-bold py-3 rounded-2xl cursor-pointer">
+              {saving ? 'กำลังบันทึก...' : `บันทึก ${queue.length} รายการ`}
+            </button>
+          </div>
+          {saveOk && <p className="text-center text-emerald-600 font-medium text-sm">✓ บันทึกสำเร็จ</p>}
+        </Modal>
+      )}
+    </div>
+  );
+}

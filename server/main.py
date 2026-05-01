@@ -659,13 +659,41 @@ def get_payroll_period_detail(period_id: int):
         conn.close()
         raise HTTPException(status_code=404, detail="ไม่พบงวดนี้")
     cursor.execute("""
-        SELECT EmployeeId, Name, Department, WorkDays, BaseAmount, LateDeduction, OTHours, OTAmount, NetTotal
-        FROM PayrollPeriodItems WHERE PeriodId=?
+        SELECT EmployeeId, Name, Department, WorkDays, BaseAmount, LateDeduction,
+               OTHours, OTAmount, PieceRateTotal, AdvanceDeduction, NetTotal
+        FROM PayrollPeriodItems WHERE PeriodId=? ORDER BY Name
     """, period_id)
     items = [{"employeeId": r[0], "name": r[1], "department": r[2], "workDays": r[3],
               "baseAmount": float(r[4]), "lateDeduction": float(r[5]),
-              "otHours": float(r[6]), "otAmount": float(r[7]), "netTotal": float(r[8])} for r in cursor.fetchall()]
+              "otHours": float(r[6]), "otAmount": float(r[7]),
+              "pieceRateTotal": float(r[8]), "advanceDeduction": float(r[9]),
+              "netTotal": float(r[10]), "pieceLogs": []} for r in cursor.fetchall()]
+
+    # ดึง piece rate logs ของงวดนี้
+    cursor.execute("""
+        SELECT pl.Id, pl.EmployeeId, pm.JobName, pm.Unit,
+               pl.Quantity, pl.UnitLength, pl.UnitPrice, pl.TotalAmount, pl.Note
+        FROM PieceRateLogs pl JOIN PieceRateMaster pm ON pl.JobId = pm.Id
+        WHERE pl.PeriodId = ?
+        ORDER BY pl.EmployeeId, pl.Id
+    """, period_id)
+    piece_rows = cursor.fetchall()
     conn.close()
+
+    piece_by_emp = {}
+    for r in piece_rows:
+        emp_id = r[1]
+        if emp_id not in piece_by_emp:
+            piece_by_emp[emp_id] = []
+        piece_by_emp[emp_id].append({
+            "id": r[0], "jobName": r[2], "unit": r[3],
+            "quantity": float(r[4]), "unitLength": float(r[5]),
+            "unitPrice": float(r[6]), "totalAmount": float(r[7]), "note": r[8] or "",
+        })
+
+    for item in items:
+        item["pieceLogs"] = piece_by_emp.get(item["employeeId"], [])
+
     return {"id": p[0], "startDate": str(p[1]), "endDate": str(p[2]),
             "grandTotal": float(p[3]), "status": p[4], "paidAt": str(p[5]) if p[5] else None, "items": items}
 
@@ -1007,7 +1035,75 @@ def create_piece_rate_log(body: PieceRateLogBody):
 def delete_piece_rate_log(log_id: int):
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("DELETE FROM PieceRateLogs WHERE Id=?", log_id)
+    cursor.execute("SELECT TotalAmount, PeriodId, EmployeeId FROM PieceRateLogs WHERE Id=?", log_id)
+    row = cursor.fetchone()
+    if row:
+        amount, period_id, emp_id = float(row[0]), row[1], row[2]
+        cursor.execute("DELETE FROM PieceRateLogs WHERE Id=?", log_id)
+        if period_id:
+            cursor.execute("""
+                UPDATE PayrollPeriodItems
+                SET PieceRateTotal = PieceRateTotal - ?,
+                    NetTotal = NetTotal - ?
+                WHERE PeriodId = ? AND EmployeeId = ?
+            """, amount, amount, period_id, emp_id)
+            cursor.execute("""
+                UPDATE PayrollPeriods SET GrandTotal = (
+                    SELECT SUM(NetTotal) FROM PayrollPeriodItems WHERE PeriodId = ?
+                ) WHERE Id = ?
+            """, period_id, period_id)
+    conn.commit()
+    conn.close()
+    return {"success": True}
+
+
+# ============================================================
+#  POST /api/payroll/periods/{id}/piece_rate — เพิ่มงานเหมาในงวด
+# ============================================================
+class PeriodPieceRateBody(BaseModel):
+    employeeId:   str
+    employeeName: str
+    jobId:        int
+    quantity:     float
+    unitLength:   float = 0
+    unitPrice:    float
+    totalAmount:  float
+    note:         str = ""
+
+@app.post("/api/payroll/periods/{period_id}/piece_rate")
+def add_period_piece_rate(period_id: int, body: PeriodPieceRateBody):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT Status FROM PayrollPeriods WHERE Id=?", period_id)
+    p = cursor.fetchone()
+    if not p:
+        conn.close()
+        raise HTTPException(status_code=404, detail="ไม่พบงวดนี้")
+    if p[0] == 'Paid':
+        conn.close()
+        raise HTTPException(status_code=400, detail="งวดนี้จ่ายแล้ว ไม่สามารถเพิ่มรายการได้")
+
+    today = get_bangkok_now().strftime("%Y-%m-%d")
+    cursor.execute("""
+        INSERT INTO PieceRateLogs
+            (EmployeeId, EmployeeName, JobId, LogDate, Quantity, UnitLength, UnitPrice, TotalAmount, Note, PeriodId)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, body.employeeId, body.employeeName, body.jobId, today,
+        body.quantity, body.unitLength, body.unitPrice, body.totalAmount, body.note, period_id)
+
+    cursor.execute("""
+        UPDATE PayrollPeriodItems
+        SET PieceRateTotal = PieceRateTotal + ?,
+            NetTotal = NetTotal + ?
+        WHERE PeriodId = ? AND EmployeeId = ?
+    """, body.totalAmount, body.totalAmount, period_id, body.employeeId)
+
+    cursor.execute("""
+        UPDATE PayrollPeriods SET GrandTotal = (
+            SELECT SUM(NetTotal) FROM PayrollPeriodItems WHERE PeriodId = ?
+        ) WHERE Id = ?
+    """, period_id, period_id)
+
     conn.commit()
     conn.close()
     return {"success": True}

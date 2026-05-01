@@ -241,6 +241,13 @@ export async function deletePieceRateLog(id) {
 }
 
 // ============================================================
+//  addPeriodPieceRate — เพิ่มงานเหมาเข้างวดการจ่าย
+// ============================================================
+export async function addPeriodPieceRate(periodId, body) {
+  return apiPost(`/api/payroll/periods/${periodId}/piece_rate`, body);
+}
+
+// ============================================================
 //  Wage Advances
 // ============================================================
 export async function getAdvances() {

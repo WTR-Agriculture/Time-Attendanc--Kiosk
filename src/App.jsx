@@ -3,6 +3,7 @@ import * as api from './lib/api';
 import EmployeesPage from './components/EmployeesPage';
 import PieceRatePage from './components/PieceRatePage';
 import AdvancesPage from './components/AdvancesPage';
+import PayrollPeriodDetail from './components/PayrollPeriodDetail';
 
 // ============================================================
 //  SVG Icons
@@ -223,8 +224,8 @@ export default function App() {
   const [payingId,         setPayingId]         = useState(null);
   const [selectedPeriod,   setSelectedPeriod]   = useState(null);
   const [mobileNavOpen,    setMobileNavOpen]    = useState(false);
-  const [periodDetail,     setPeriodDetail]     = useState(null);
-  const [periodDetailLoading, setPeriodDetailLoading] = useState(false);
+  const [periodDetail,     setPeriodDetail]     = useState(null); // unused, kept for compat
+  const [periodDetailLoading, setPeriodDetailLoading] = useState(false); // unused
 
   // --- Dashboard ---
   const [dashLoading, setDashLoading] = useState(false);
@@ -445,17 +446,8 @@ export default function App() {
     } catch {} finally { setPayingId(null); }
   }
 
-  async function handleViewPeriod(period) {
+  function handleViewPeriod(period) {
     setSelectedPeriod(period);
-    setPeriodDetailLoading(true);
-    try {
-      const r = await api.getPayrollPeriodDetail(period.id);
-      setPeriodDetail(r);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setPeriodDetailLoading(false);
-    }
   }
 
   // ============================================================
@@ -894,147 +886,78 @@ export default function App() {
   // ============================================================
   const renderPayroll = () => (
     <div className="flex flex-col gap-6 animate-fade-in">
-      <div>
-        <h2 className="text-2xl font-bold text-[#222222]">งวดค่าแรง</h2>
-        <p className="text-slate-400 text-sm mt-0.5">เลือกช่วงวันที่แล้วสร้างงวดการจ่าย</p>
-      </div>
 
-      {/* Create period */}
-      <div className="bg-[#F8FAFC] rounded-2xl border border-slate-100 p-5 flex flex-col gap-4">
-        <p className="font-semibold text-slate-600">สร้างงวดการจ่ายใหม่</p>
-        <div className="flex gap-3 flex-wrap items-end">
-          <div className="flex flex-col gap-1 flex-1 min-w-[140px]">
-            <label className="text-sm text-slate-500">วันเริ่มต้น</label>
-            <input type="date" value={payPeriodStart} onChange={e => setPayPeriodStart(e.target.value)}
-              className="border border-slate-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-[#7B8CFA] bg-white" />
+      {/* Period detail — takes over when a period is selected */}
+      {selectedPeriod ? (
+        <>
+          <div>
+            <h2 className="text-2xl font-bold text-[#222222]">รายละเอียดงวด</h2>
           </div>
-          <div className="flex flex-col gap-1 flex-1 min-w-[140px]">
-            <label className="text-sm text-slate-500">วันสิ้นสุด</label>
-            <input type="date" value={payPeriodEnd} onChange={e => setPayPeriodEnd(e.target.value)}
-              className="border border-slate-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-[#7B8CFA] bg-white" />
+          <PayrollPeriodDetail
+            period={selectedPeriod}
+            employees={employees}
+            onClose={() => setSelectedPeriod(null)}
+            onPaid={() => loadPayrollPeriods()}
+          />
+        </>
+      ) : (
+        <>
+          <div>
+            <h2 className="text-2xl font-bold text-[#222222]">งวดค่าแรง</h2>
+            <p className="text-slate-400 text-sm mt-0.5">เลือกช่วงวันที่แล้วสร้างงวดการจ่าย</p>
           </div>
-          <button onClick={handleCreatePeriod} disabled={!payPeriodStart || !payPeriodEnd || payPeriodLoading}
-            className="bg-[#7B8CFA] text-white px-6 py-2.5 rounded-xl font-bold text-sm disabled:opacity-40 cursor-pointer">
-            {payPeriodLoading ? 'กำลังคำนวณ...' : 'สร้างงวด'}
-          </button>
-        </div>
-        {payPeriodError && <p className="text-red-500 text-sm">{payPeriodError}</p>}
-      </div>
 
-      {/* Preview */}
-      {payPeriodPreview && (
-        <div className="bg-white rounded-2xl border border-[#7B8CFA]/30 p-5 flex flex-col gap-3">
-          <div className="flex items-center justify-between">
-            <p className="font-bold text-[#7B8CFA]">ผลการคำนวณ — {payPeriodStart} ถึง {payPeriodEnd}</p>
-            <button onClick={exportPayrollCSV} className="flex items-center gap-1.5 bg-[#C6F45D] text-[#222222] px-3 py-1.5 rounded-xl font-bold text-xs cursor-pointer">
-              <IconDownload /> Export
-            </button>
-          </div>
-          <div className="overflow-auto rounded-xl border border-slate-100">
-            <table className="w-full text-sm text-left">
-              <thead className="bg-[#F8FAFC] text-slate-500">
-                <tr>
-                  {['ชื่อ','วันทำงาน','ค่าแรง','หักมาสาย','OT','สุทธิ'].map(h => (
-                    <th key={h} className="px-4 py-2 font-bold">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {(payPeriodPreview.items || []).map((item, i) => (
-                  <tr key={i} className="border-t border-slate-50">
-                    <td className="px-4 py-2 font-medium">{item.name}</td>
-                    <td className="px-4 py-2">{item.workDays} วัน</td>
-                    <td className="px-4 py-2">{formatMoney(item.baseAmount)}</td>
-                    <td className="px-4 py-2 text-red-500">{item.lateDeduction > 0 ? `-${formatMoney(item.lateDeduction)}` : '-'}</td>
-                    <td className="px-4 py-2 text-emerald-600">{item.otHours > 0 ? `+${item.otHours}ชม.` : '-'}</td>
-                    <td className="px-4 py-2 font-bold text-[#7B8CFA]">{formatMoney(item.netTotal)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="flex justify-between items-center pt-1">
-            <span className="text-slate-500 text-sm">รวมสุทธิทั้งหมด</span>
-            <span className="text-xl font-bold text-[#7B8CFA]">{formatMoney(payPeriodPreview.grandTotal)}</span>
-          </div>
-        </div>
-      )}
-
-      {/* Period list */}
-      <div className="flex flex-col gap-3">
-        <div className="flex items-center justify-between">
-          <p className="font-semibold text-slate-600">ประวัติการจ่าย</p>
-          {adminLoading && <div className="w-4 h-4 border-2 border-slate-200 border-t-[#7B8CFA] rounded-full animate-spin" />}
-        </div>
-
-        {/* Period detail view */}
-        {selectedPeriod && (
-          <div className="bg-white rounded-2xl border border-[#7B8CFA]/20 p-5 flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <p className="font-bold text-[#222222]">{selectedPeriod.startDate} — {selectedPeriod.endDate}</p>
-              <button onClick={() => { setSelectedPeriod(null); setPeriodDetail(null); }}
-                className="text-slate-400 hover:text-slate-600 text-sm cursor-pointer">ปิด ✕</button>
-            </div>
-            {periodDetailLoading ? (
-              <div className="text-center py-4 text-slate-400 text-sm">กำลังโหลด...</div>
-            ) : periodDetail ? (
-              <div className="overflow-auto rounded-xl border border-slate-100">
-                <table className="w-full text-sm text-left">
-                  <thead className="bg-[#F8FAFC] text-slate-500">
-                    <tr>
-                      {['ชื่อ','วันทำงาน','ค่าแรง','หักมาสาย','OT','สุทธิ','สถานะ'].map(h => (
-                        <th key={h} className="px-4 py-2 font-bold">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(periodDetail.items || []).map((item, i) => (
-                      <tr key={i} className="border-t border-slate-50">
-                        <td className="px-4 py-2 font-medium">{item.name}</td>
-                        <td className="px-4 py-2">{item.workDays} วัน</td>
-                        <td className="px-4 py-2">{formatMoney(item.baseAmount)}</td>
-                        <td className="px-4 py-2 text-red-500">{item.lateDeduction > 0 ? `-${formatMoney(item.lateDeduction)}` : '-'}</td>
-                        <td className="px-4 py-2 text-emerald-600">{item.otHours > 0 ? `+${item.otHours}ชม.` : '-'}</td>
-                        <td className="px-4 py-2 font-bold text-[#7B8CFA]">{formatMoney(item.netTotal)}</td>
-                        <td className="px-4 py-2">
-                          {item.paidStatus === 'Paid'
-                            ? <span className="bg-green-100 text-green-600 text-xs font-bold px-2 py-0.5 rounded-full">จ่ายแล้ว</span>
-                            : <span className="bg-amber-100 text-amber-700 text-xs font-bold px-2 py-0.5 rounded-full">ยังไม่จ่าย</span>
-                          }
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+          {/* Create period */}
+          <div className="bg-[#F8FAFC] rounded-2xl border border-slate-100 p-5 flex flex-col gap-4">
+            <p className="font-semibold text-slate-600">สร้างงวดการจ่ายใหม่</p>
+            <div className="flex gap-3 flex-wrap items-end">
+              <div className="flex flex-col gap-1 flex-1 min-w-[140px]">
+                <label className="text-sm text-slate-500">วันเริ่มต้น</label>
+                <input type="date" value={payPeriodStart} onChange={e => setPayPeriodStart(e.target.value)}
+                  className="border border-slate-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-[#7B8CFA] bg-white" />
               </div>
-            ) : null}
-          </div>
-        )}
-
-        {payPeriods.length === 0 && !adminLoading ? (
-          <div className="text-slate-400 text-center py-8 text-sm">ยังไม่มีงวดการจ่าย</div>
-        ) : (
-          payPeriods.map(p => (
-            <div key={p.id} className="bg-white rounded-2xl border border-slate-100 px-5 py-4 flex items-center justify-between gap-4">
-              <button onClick={() => handleViewPeriod(p)} className="flex flex-col gap-0.5 text-left cursor-pointer hover:underline">
-                <p className="font-bold text-[#222222]">{p.startDate} — {p.endDate}</p>
-                <p className="text-slate-400 text-xs">สร้างเมื่อ {p.createdAt?.slice(0, 10)}{p.paidAt ? ` · จ่ายเมื่อ ${p.paidAt?.slice(0, 10)}` : ''}</p>
+              <div className="flex flex-col gap-1 flex-1 min-w-[140px]">
+                <label className="text-sm text-slate-500">วันสิ้นสุด</label>
+                <input type="date" value={payPeriodEnd} onChange={e => setPayPeriodEnd(e.target.value)}
+                  className="border border-slate-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-[#7B8CFA] bg-white" />
+              </div>
+              <button onClick={handleCreatePeriod} disabled={!payPeriodStart || !payPeriodEnd || payPeriodLoading}
+                className="bg-[#7B8CFA] text-white px-6 py-2.5 rounded-xl font-bold text-sm disabled:opacity-40 cursor-pointer">
+                {payPeriodLoading ? 'กำลังคำนวณ...' : 'สร้างงวด'}
               </button>
-              <div className="flex items-center gap-3">
-                <span className="text-lg font-bold text-[#7B8CFA]">{formatMoney(p.grandTotal)}</span>
-                {p.status === 'Paid' ? (
-                  <span className="bg-green-100 text-green-600 text-xs font-bold px-3 py-1 rounded-full">จ่ายแล้ว</span>
-                ) : (
-                  <button onClick={() => handlePayPeriod(p.id)} disabled={payingId === p.id}
-                    className="bg-[#C6F45D] text-[#222222] text-xs font-bold px-4 py-1.5 rounded-full cursor-pointer disabled:opacity-50">
-                    {payingId === p.id ? '...' : 'ยืนยันจ่าย'}
-                  </button>
-                )}
-              </div>
             </div>
-          ))
-        )}
-      </div>
+            {payPeriodError && <p className="text-red-500 text-sm">{payPeriodError}</p>}
+          </div>
+
+          {/* Period list */}
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <p className="font-semibold text-slate-600">ประวัติการจ่าย</p>
+              {adminLoading && <div className="w-4 h-4 border-2 border-slate-200 border-t-[#7B8CFA] rounded-full animate-spin" />}
+            </div>
+            {payPeriods.length === 0 && !adminLoading ? (
+              <div className="text-slate-400 text-center py-8 text-sm">ยังไม่มีงวดการจ่าย</div>
+            ) : (
+              payPeriods.map(p => (
+                <button key={p.id} onClick={() => handleViewPeriod(p)}
+                  className="bg-white rounded-2xl border border-slate-100 px-5 py-4 flex items-center justify-between gap-4 cursor-pointer hover:border-[#7B8CFA]/30 hover:shadow-sm transition-all text-left w-full">
+                  <div className="flex flex-col gap-0.5">
+                    <p className="font-bold text-[#222222]">{p.startDate} — {p.endDate}</p>
+                    <p className="text-slate-400 text-xs">สร้างเมื่อ {p.createdAt?.slice(0, 10)}{p.paidAt ? ` · จ่ายเมื่อ ${p.paidAt?.slice(0, 10)}` : ''}</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-lg font-bold text-[#7B8CFA]">{formatMoney(p.grandTotal)}</span>
+                    {p.status === 'Paid'
+                      ? <span className="bg-green-100 text-green-600 text-xs font-bold px-3 py-1 rounded-full">จ่ายแล้ว</span>
+                      : <span className="bg-amber-100 text-amber-700 text-xs font-bold px-3 py-1 rounded-full">ยังไม่จ่าย →</span>
+                    }
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 

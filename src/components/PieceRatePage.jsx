@@ -36,16 +36,18 @@ export default function PieceRatePage({ employees }) {
   const [categories, setCategories] = useState([]);
   const [jobs, setJobs]             = useState([]);
   const [logs, setLogs]             = useState([]);
-  const [logDate, setLogDate]       = useState(today());
+  const [pageDate, setPageDate]     = useState(today());
   const [loading, setLoading]       = useState(false);
 
-  // entry form
+  // entry form (no date — uses pageDate)
   const [fEmpId, setFEmpId] = useState('');
   const [fJobId, setFJobId] = useState('');
-  const [fDate,  setFDate]  = useState(today());
   const [fQty,   setFQty]   = useState('');
   const [fLen,   setFLen]   = useState('');
   const [fNote,  setFNote]  = useState('');
+
+  // pending queue
+  const [queue,  setQueue]  = useState([]);
   const [saving, setSaving] = useState(false);
   const [saveOk, setSaveOk] = useState(false);
 
@@ -68,7 +70,7 @@ export default function PieceRatePage({ employees }) {
   const [jSaving, setJSaving] = useState(false);
 
   useEffect(() => { loadCategories(); loadJobs(); }, []);
-  useEffect(() => { if (tab === 'log') loadLogs(logDate); }, [tab, logDate]);
+  useEffect(() => { if (tab === 'log') loadLogs(pageDate); }, [tab, pageDate]);
 
   const loadCategories = async () => {
     try { const d = await api.getPieceRateCategories(); setCategories(d.categories); } catch {}
@@ -84,33 +86,51 @@ export default function PieceRatePage({ employees }) {
 
   // selected job's category formula
   const selectedJob = jobs.find(j => j.id === Number(fJobId));
-  const calcUnitPrice = () => {
-    if (!selectedJob) return 0;
-    const len   = parseFloat(fLen) || 0;
-    const extra = selectedJob.hasLength
-      ? Math.max(0, len - selectedJob.baseLength) * selectedJob.extraPerUnit
+  const calcPrice = (job, qty, len) => {
+    if (!job) return { unitPrice: 0, totalAmount: 0 };
+    const extra = job.hasLength
+      ? Math.max(0, (parseFloat(len) || 0) - job.baseLength) * job.extraPerUnit
       : 0;
-    return selectedJob.basePrice + extra;
+    const unitPrice = job.basePrice + extra;
+    return { unitPrice, totalAmount: unitPrice * (parseFloat(qty) || 0) };
   };
-  const unitPrice   = calcUnitPrice();
-  const totalAmount = unitPrice * (parseFloat(fQty) || 0);
+  const { unitPrice, totalAmount } = calcPrice(selectedJob, fQty, fLen);
 
-  const handleSaveLog = async () => {
-    if (!fEmpId || !fJobId || !fQty || !fDate) return;
+  // เพิ่มเข้า queue (ยังไม่ save)
+  const handleAddToQueue = () => {
+    if (!fEmpId || !fJobId || !fQty) return;
+    const emp = employees.find(e => e.employeeId === fEmpId);
+    const job = selectedJob;
+    const { unitPrice: up, totalAmount: ta } = calcPrice(job, fQty, fLen);
+    setQueue(prev => [...prev, {
+      id: Date.now(),
+      employeeId: fEmpId, employeeName: emp?.name || fEmpId,
+      jobId: job.id, jobName: job.jobName, unit: job.unit,
+      quantity: parseFloat(fQty),
+      unitLength: job.hasLength ? (parseFloat(fLen) || 0) : 0,
+      hasLength: job.hasLength, extraPerUnit: job.extraPerUnit,
+      unitPrice: up, totalAmount: ta, note: fNote,
+    }]);
+    setFQty(''); setFLen(''); setFNote('');
+  };
+
+  // บันทึกทั้งหมดใน queue
+  const handleSaveAll = async () => {
+    if (queue.length === 0) return;
     setSaving(true);
     try {
-      const emp = employees.find(e => e.employeeId === fEmpId);
-      await api.createPieceRateLog({
-        employeeId: fEmpId, employeeName: emp?.name || fEmpId,
-        jobId: Number(fJobId), logDate: fDate,
-        quantity: parseFloat(fQty),
-        unitLength: selectedJob?.hasLength ? (parseFloat(fLen) || 0) : 0,
-        unitPrice, totalAmount, note: fNote,
-      });
+      await Promise.all(queue.map(item =>
+        api.createPieceRateLog({
+          employeeId: item.employeeId, employeeName: item.employeeName,
+          jobId: item.jobId, logDate: pageDate,
+          quantity: item.quantity, unitLength: item.unitLength,
+          unitPrice: item.unitPrice, totalAmount: item.totalAmount, note: item.note,
+        })
+      ));
+      setQueue([]);
       setSaveOk(true);
-      setFQty(''); setFLen(''); setFNote('');
       setTimeout(() => setSaveOk(false), 2000);
-      if (fDate === logDate) loadLogs(logDate);
+      loadLogs(pageDate);
     } catch {}
     setSaving(false);
   };
@@ -118,7 +138,7 @@ export default function PieceRatePage({ employees }) {
   const handleDeleteLog = async (id) => {
     if (!confirm('ลบรายการนี้?')) return;
     await api.deletePieceRateLog(id);
-    loadLogs(logDate);
+    loadLogs(pageDate);
   };
 
   // ── Category modal ──
@@ -187,37 +207,38 @@ export default function PieceRatePage({ employees }) {
 
   return (
     <div className="flex flex-col gap-6">
+      {/* Header with date picker */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h2 className="text-2xl font-bold text-[#222222]">งานเหมา</h2>
-        <div className="flex gap-2">
-          {['log', 'jobs'].map(t => (
-            <button key={t} onClick={() => setTab(t)}
-              className={`px-4 py-2 rounded-2xl text-sm font-semibold cursor-pointer transition-colors
-                ${tab === t ? 'bg-[#7B8CFA] text-white' : 'bg-white text-slate-500 border border-slate-200'}`}>
-              {t === 'log' ? 'บันทึกงาน' : 'จัดการรายการ'}
-            </button>
-          ))}
+        <div className="flex items-center gap-2 flex-wrap">
+          <input type="date" value={pageDate}
+            onChange={e => setPageDate(e.target.value)}
+            className="bg-white border border-slate-200 rounded-2xl px-4 py-2.5 text-sm outline-none focus:border-[#7B8CFA]" />
+          <div className="flex gap-2">
+            {['log', 'jobs'].map(t => (
+              <button key={t} onClick={() => setTab(t)}
+                className={`px-4 py-2 rounded-2xl text-sm font-semibold cursor-pointer transition-colors
+                  ${tab === t ? 'bg-[#7B8CFA] text-white' : 'bg-white text-slate-500 border border-slate-200'}`}>
+                {t === 'log' ? 'บันทึกงาน' : 'จัดการรายการ'}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
       {/* ── Tab: บันทึกงาน ── */}
       {tab === 'log' && (
         <div className="flex flex-col gap-5">
+          {/* Entry form */}
           <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 flex flex-col gap-4">
-            <p className="font-bold text-[#222222]">กรอกรายการงานเหมา</p>
+            <p className="font-bold text-[#222222]">เพิ่มรายการ</p>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-semibold text-slate-500">พนักงาน *</label>
-                <select value={fEmpId} onChange={e => setFEmpId(e.target.value)} className={inputCls}>
-                  <option value="">-- เลือกพนักงาน --</option>
-                  {employees.map(e => <option key={e.employeeId} value={e.employeeId}>{e.name}</option>)}
-                </select>
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-semibold text-slate-500">วันที่ *</label>
-                <input type="date" value={fDate} onChange={e => setFDate(e.target.value)} className={inputCls} />
-              </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-semibold text-slate-500">พนักงาน *</label>
+              <select value={fEmpId} onChange={e => setFEmpId(e.target.value)} className={inputCls}>
+                <option value="">-- เลือกพนักงาน --</option>
+                {employees.map(e => <option key={e.employeeId} value={e.employeeId}>{e.name}</option>)}
+              </select>
             </div>
 
             <div className="flex flex-col gap-1.5">
@@ -243,7 +264,7 @@ export default function PieceRatePage({ employees }) {
               </select>
             </div>
 
-            <div className={`grid gap-4 ${selectedJob?.hasLength ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-2'}`}>
+            <div className={`grid gap-3 ${selectedJob?.hasLength ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-2'}`}>
               <div className="flex flex-col gap-1.5">
                 <label className="text-sm font-semibold text-slate-500">
                   จำนวน ({selectedJob?.unit || 'หน่วย'}) *
@@ -268,33 +289,63 @@ export default function PieceRatePage({ employees }) {
             </div>
 
             {selectedJob && fQty && (
-              <div className="bg-[#7B8CFA]/8 border border-[#7B8CFA]/20 rounded-2xl px-4 py-3 flex justify-between items-center">
+              <div className="bg-[#7B8CFA]/8 border border-[#7B8CFA]/20 rounded-2xl px-4 py-2.5 flex justify-between items-center">
                 <p className="text-sm text-slate-500">
                   {fQty} {selectedJob.unit} × {formatMoney(unitPrice)}
-                  {selectedJob.hasLength && fLen ? ` (ฐาน ${formatMoney(selectedJob.basePrice)} + ${fLen}ศอก × ${selectedJob.extraPerUnit})` : ''}
+                  {selectedJob.hasLength && fLen ? ` (+${fLen}ศอก×${selectedJob.extraPerUnit})` : ''}
                 </p>
-                <p className="text-lg font-bold text-[#7B8CFA]">{formatMoney(totalAmount)}</p>
+                <p className="font-bold text-[#7B8CFA]">{formatMoney(totalAmount)}</p>
               </div>
             )}
 
-            <div className="flex items-center gap-3">
-              <button onClick={handleSaveLog}
-                disabled={!fEmpId || !fJobId || !fQty || !fDate || saving}
-                className="bg-[#7B8CFA] disabled:opacity-40 text-white font-bold px-6 py-3 rounded-2xl cursor-pointer active:scale-95 transition-transform">
-                {saving ? 'กำลังบันทึก...' : 'บันทึก'}
-              </button>
-              {saveOk && <p className="text-emerald-600 font-medium text-sm">✓ บันทึกแล้ว</p>}
-            </div>
+            <button onClick={handleAddToQueue}
+              disabled={!fEmpId || !fJobId || !fQty}
+              className="bg-[#10B981] disabled:opacity-40 text-white font-bold px-6 py-3 rounded-2xl cursor-pointer active:scale-95 transition-transform self-start">
+              + เพิ่มรายการ
+            </button>
           </div>
 
-          {/* Log list */}
-          <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 flex flex-col gap-4">
-            <div className="flex items-center justify-between flex-wrap gap-3">
-              <p className="font-bold text-[#222222]">รายการวันที่</p>
-              <input type="date" value={logDate}
-                onChange={e => { setLogDate(e.target.value); loadLogs(e.target.value); }}
-                className="bg-[#F8FAFC] border border-slate-200 rounded-2xl px-3 py-2 text-sm outline-none focus:border-[#7B8CFA]" />
+          {/* Queue */}
+          {queue.length > 0 && (
+            <div className="bg-white rounded-3xl border border-[#7B8CFA]/30 shadow-sm p-6 flex flex-col gap-4">
+              <div className="flex items-center justify-between">
+                <p className="font-bold text-[#222222]">รายการรอบันทึก ({queue.length})</p>
+                <p className="text-sm font-semibold text-[#7B8CFA]">
+                  รวม {formatMoney(queue.reduce((s, q) => s + q.totalAmount, 0))}
+                </p>
+              </div>
+              <div className="flex flex-col gap-2">
+                {queue.map(item => (
+                  <div key={item.id} className="bg-[#F8FAFC] rounded-2xl px-4 py-3 flex items-center justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-[#222222] text-sm">{item.employeeName}</p>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        {item.jobName} · {item.quantity} {item.unit}
+                        {item.hasLength && item.unitLength > 0 ? ` · ${item.unitLength} ศอก` : ''}
+                        {item.note ? ` · ${item.note}` : ''}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3 flex-shrink-0">
+                      <p className="font-bold text-[#10B981] text-sm">{formatMoney(item.totalAmount)}</p>
+                      <button onClick={() => setQueue(q => q.filter(x => x.id !== item.id))}
+                        className="text-slate-300 hover:text-red-400 cursor-pointer"><IconTrash /></button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-center gap-3 pt-1">
+                <button onClick={handleSaveAll} disabled={saving}
+                  className="bg-[#7B8CFA] disabled:opacity-40 text-white font-bold px-6 py-3 rounded-2xl cursor-pointer active:scale-95 transition-transform">
+                  {saving ? 'กำลังบันทึก...' : `บันทึกทั้งหมด (${queue.length} รายการ)`}
+                </button>
+                {saveOk && <p className="text-emerald-600 font-medium text-sm">✓ บันทึกแล้ว</p>}
+              </div>
             </div>
+          )}
+
+          {/* Saved logs for date */}
+          <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 flex flex-col gap-4">
+            <p className="font-bold text-[#222222]">รายการที่บันทึกแล้ว</p>
             {loading ? (
               <p className="text-center text-slate-400 text-sm py-6">กำลังโหลด...</p>
             ) : logs.length === 0 ? (
