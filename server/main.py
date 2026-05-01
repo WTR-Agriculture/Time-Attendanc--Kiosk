@@ -1,6 +1,6 @@
 """
-Time Attendance Kiosk — FastAPI Backend
-รันด้วย: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+Time Attendance — FastAPI Backend
+รันด้วย: uvicorn main:app --host 0.0.0.0 --port 8000
 """
 
 from fastapi import FastAPI, HTTPException
@@ -8,11 +8,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
 import pyodbc
-import insightface
-import numpy as np
-import base64
-import cv2
-import json
 from datetime import datetime, date
 import pytz
 
@@ -45,60 +40,6 @@ app.add_middleware(
 )
 
 # ============================================================
-#  Face Recognition — โหลดโมเดลครั้งเดียวตอน startup
-# ============================================================
-face_app = None
-
-# embedding cache: list of { employeeId, name, department, rate, rateType, embedding: np.array }
-_embed_cache: list = []
-
-def reload_embed_cache():
-    """โหลด embeddings ทั้งหมดจาก DB เข้า memory (เรียกตอน startup และหลัง enroll)"""
-    global _embed_cache
-    conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT EmployeeId, Name, Department, Rate, RateType, FaceDescriptorJson
-        FROM Employees WHERE IsActive = 1 AND FaceDescriptorJson IS NOT NULL
-    """)
-    rows = cursor.fetchall()
-    conn.close()
-    cache = []
-    for r in rows:
-        try:
-            emb = np.array(json.loads(r[5]), dtype=np.float32)
-            cache.append({
-                "employeeId": r[0], "name": r[1], "department": r[2],
-                "rate": float(r[3]), "rateType": r[4], "embedding": emb,
-            })
-        except Exception:
-            continue
-    _embed_cache = cache
-    print(f"Embedding cache loaded: {len(_embed_cache)} employees")
-
-def decode_and_resize(img_b64: str, max_size: int = 320):
-    """Decode base64 image and resize to max_size (keeps aspect ratio)."""
-    img_bytes = base64.b64decode(img_b64)
-    img_array = np.frombuffer(img_bytes, dtype=np.uint8)
-    img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-    if img is None:
-        return None
-    h, w = img.shape[:2]
-    if max(h, w) > max_size:
-        scale = max_size / max(h, w)
-        img = cv2.resize(img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
-    return img
-
-@app.on_event("startup")
-async def startup():
-    global face_app
-    print("Loading InsightFace model...")
-    face_app = insightface.app.FaceAnalysis(name="buffalo_sc", providers=["CPUExecutionProvider"])
-    face_app.prepare(ctx_id=0, det_size=(320, 320))
-    print("InsightFace ready!")
-    reload_embed_cache()
-
-# ============================================================
 #  DB helper
 # ============================================================
 def get_db():
@@ -116,13 +57,6 @@ class LogAttendanceBody(BaseModel):
     actionType: str
     confidenceScore: Optional[float] = 0
     deviceId: Optional[str] = "iPad-01"
-
-class EnrollFaceBody(BaseModel):
-    employeeId: str
-    images: list[str]  # list of JPEG base64 (1 per pose)
-
-class RecognizeFaceBody(BaseModel):
-    imageBase64: str  # JPEG base64 จาก iPad
 
 class LogOTBody(BaseModel):
     employeeId: str
@@ -170,7 +104,7 @@ def get_employees():
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT EmployeeId, Name, Department, Rate, RateType, FaceDescriptorJson
+        SELECT EmployeeId, Name, Department, Rate, RateType
         FROM Employees WHERE IsActive = 1
     """)
     rows = cursor.fetchall()
@@ -179,94 +113,13 @@ def get_employees():
     employees = []
     for r in rows:
         employees.append({
-            "employeeId":         r[0],
-            "name":               r[1],
-            "department":         r[2],
-            "rate":               float(r[3]),
-            "rateType":           r[4],
-            "faceDescriptorJson": r[5],
+            "employeeId": r[0],
+            "name":       r[1],
+            "department": r[2],
+            "rate":       float(r[3]),
+            "rateType":   r[4],
         })
     return {"employees": employees}
-
-# ============================================================
-#  POST /api/recognize — ส่งรูปมา server จับหน้าเทียบ
-# ============================================================
-@app.post("/api/recognize")
-def recognize_face(body: RecognizeFaceBody):
-    img = decode_and_resize(body.imageBase64, max_size=320)
-    if img is None:
-        raise HTTPException(status_code=400, detail="Invalid image")
-
-    # detect face
-    faces = face_app.get(img)
-    if not faces:
-        return {"matched": False, "message": "ไม่พบใบหน้าในรูป"}
-
-    query_embedding = faces[0].embedding  # ใช้หน้าแรกที่เจอ
-    q_norm = query_embedding / (np.linalg.norm(query_embedding) + 1e-10)
-
-    best_match = None
-    best_score = -1
-
-    for emp in _embed_cache:
-        stored = emp["embedding"]
-        s_norm = stored / (np.linalg.norm(stored) + 1e-10)
-        score = float(np.dot(q_norm, s_norm))
-        if score > best_score:
-            best_score = score
-            best_match = {k: emp[k] for k in ("employeeId", "name", "department", "rate", "rateType")}
-
-    THRESHOLD = 0.4  # ปรับได้ใน settings
-    if best_score >= THRESHOLD:
-        return {
-            "matched":    True,
-            "employee":   best_match,
-            "confidence": round(best_score * 100, 1),
-        }
-    return {"matched": False, "message": "ไม่พบพนักงานที่ตรงกัน", "confidence": round(best_score * 100, 1)}
-
-# ============================================================
-#  POST /api/enroll — บันทึกใบหน้าพนักงาน
-# ============================================================
-@app.post("/api/enroll")
-def enroll_face(body: EnrollFaceBody):
-    if not body.images:
-        raise HTTPException(status_code=400, detail="ไม่มีรูปภาพ")
-
-    embeddings = []
-    for img_b64 in body.images:
-        try:
-            img = decode_and_resize(img_b64, max_size=320)
-            if img is None:
-                continue
-            faces = face_app.get(img)
-            if faces:
-                embeddings.append(faces[0].embedding)
-        except Exception:
-            continue
-
-    if not embeddings:
-        raise HTTPException(status_code=400, detail="ไม่พบใบหน้าในรูปที่ส่งมา")
-
-    # Average embedding จากทุก pose
-    avg_embedding = np.mean(embeddings, axis=0).tolist()
-    descriptor_json = json.dumps(avg_embedding)
-
-    conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute("""
-        UPDATE Employees SET FaceDescriptorJson = ?
-        WHERE EmployeeId = ?
-    """, descriptor_json, body.employeeId)
-
-    if cursor.rowcount == 0:
-        conn.close()
-        raise HTTPException(status_code=404, detail=f"ไม่พบพนักงาน ID: {body.employeeId}")
-
-    conn.commit()
-    conn.close()
-    reload_embed_cache()  # อัปเดต cache ทันที
-    return {"success": True, "message": f"บันทึกใบหน้าจาก {len(embeddings)} ท่า สำเร็จ"}
 
 # ============================================================
 #  POST /api/attendance — บันทึกเวลาเข้าออก
