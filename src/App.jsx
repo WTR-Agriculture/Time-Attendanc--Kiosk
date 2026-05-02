@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import * as api from './lib/api';
 import EmployeesPage from './components/EmployeesPage';
 import PieceRatePage from './components/PieceRatePage';
@@ -75,6 +76,26 @@ const IconDownload = () => (
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
   </svg>
 );
+const IconCheck = ({ cls = 'w-3.5 h-3.5' }) => (
+  <svg className={cls} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
+  </svg>
+);
+const IconX = ({ cls = 'w-4 h-4' }) => (
+  <svg className={cls} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+  </svg>
+);
+const IconChevronRight = () => (
+  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" />
+  </svg>
+);
+const IconArrowRight = () => (
+  <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+  </svg>
+);
 
 // ============================================================
 //  Constants
@@ -104,70 +125,143 @@ const formatMoney = (n) => Number(n || 0).toLocaleString('th-TH', { style: 'curr
 //  Main App
 // ============================================================
 // ============================================================
-//  TimePicker — 24-hour dropdown (HH:MM)
+//  DrumScroll — scrollable column for TimePicker
 // ============================================================
-// ============================================================
-//  DrumScroll — one scrollable column for TimePicker
-// ============================================================
+const DRUM_ITEM_H = 44;
+
 function DrumScroll({ options, value, onChange }) {
-  const ref = useRef(null);
+  const ref   = useRef(null);
   const timer = useRef(null);
-  const ITEM_H = 44;
 
   useEffect(() => {
     const idx = options.indexOf(value);
-    if (ref.current && idx >= 0) {
-      ref.current.scrollTop = idx * ITEM_H;
-    }
+    if (ref.current && idx >= 0) ref.current.scrollTop = idx * DRUM_ITEM_H;
   }, [value, options]);
 
   const onScroll = () => {
     clearTimeout(timer.current);
     timer.current = setTimeout(() => {
       if (!ref.current) return;
-      const idx = Math.round(ref.current.scrollTop / ITEM_H);
-      const clamped = Math.max(0, Math.min(idx, options.length - 1));
-      ref.current.scrollTop = clamped * ITEM_H;
-      onChange(options[clamped]);
+      const idx = Math.max(0, Math.min(Math.round(ref.current.scrollTop / DRUM_ITEM_H), options.length - 1));
+      ref.current.scrollTop = idx * DRUM_ITEM_H;
+      onChange(options[idx]);
     }, 120);
   };
 
   return (
-    <div className="relative flex-1" style={{ height: ITEM_H * 3 }}>
-      {/* highlight bar */}
+    <div className="relative flex-1" style={{ height: DRUM_ITEM_H * 3 }}>
       <div className="absolute inset-x-1 pointer-events-none rounded-xl"
-        style={{ top: ITEM_H, height: ITEM_H, background: 'rgba(123,140,250,0.12)', border: '1.5px solid rgba(123,140,250,0.25)' }} />
-      <div ref={ref} onScroll={onScroll}
-        className="h-full overflow-y-scroll"
+        style={{ top: DRUM_ITEM_H, height: DRUM_ITEM_H, background: 'rgba(123,140,250,0.12)', border: '1.5px solid rgba(123,140,250,0.25)' }} />
+      <div ref={ref} onScroll={onScroll} className="h-full overflow-y-scroll"
         style={{ scrollSnapType: 'y mandatory', scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
-        <div style={{ height: ITEM_H }} />
+        <div style={{ height: DRUM_ITEM_H }} />
         {options.map(opt => (
-          <div key={opt} onClick={() => { const i = options.indexOf(opt); ref.current.scrollTop = i * ITEM_H; onChange(opt); }}
-            style={{ height: ITEM_H, scrollSnapAlign: 'center' }}
+          <div key={opt}
+            onClick={() => { const i = options.indexOf(opt); ref.current.scrollTop = i * DRUM_ITEM_H; onChange(opt); }}
+            style={{ height: DRUM_ITEM_H, scrollSnapAlign: 'center' }}
             className={`flex items-center justify-center font-mono text-xl font-bold select-none cursor-pointer transition-colors
               ${opt === value ? 'text-[#7B8CFA]' : 'text-slate-300'}`}>
             {opt}
           </div>
         ))}
-        <div style={{ height: ITEM_H }} />
+        <div style={{ height: DRUM_ITEM_H }} />
       </div>
     </div>
   );
 }
 
 // ============================================================
-//  TimePicker — drum scroll 24-hour HH:MM
+//  TimeCombobox — drum-scroll 24-hr, desktop popover / mobile bottom-sheet
 // ============================================================
-function TimePicker({ value, onChange }) {
-  const HOURS   = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
-  const MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'));
-  const [h, m] = value ? value.split(':') : ['08', '00'];
+const TC_HOURS   = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
+const TC_MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'));
+const timeInputCls = "bg-[#F8FAFC] border border-slate-200 rounded-xl px-2 py-2 text-sm outline-none focus:border-[#7B8CFA] w-[80px] text-center font-mono cursor-pointer";
+
+function TimeCombobox({ value, onChange, placeholder }) {
+  const [open, setOpen]   = useState(false);
+  const [mobile, setMobile] = useState(() => window.innerWidth < 640);
+  const [pos, setPos]     = useState({ top: 0, left: 0 });
+  const wrapRef = useRef(null);
+
+  useEffect(() => {
+    const onResize = () => setMobile(window.innerWidth < 640);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  useEffect(() => {
+    if (!open || mobile) return;
+    const handler = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open, mobile]);
+
+  const openPicker = () => {
+    if (!mobile && wrapRef.current) {
+      const r = wrapRef.current.getBoundingClientRect();
+      setPos({ top: r.bottom + window.scrollY + 6, left: r.left + window.scrollX });
+    }
+    setOpen(true);
+  };
+
+  const handleInput = (raw) => {
+    const digits = raw.replace(/\D/g, '').slice(0, 4);
+    const val = digits.length >= 3 ? digits.slice(0, 2) + ':' + digits.slice(2) : digits;
+    onChange(val);
+  };
+
+  const [hVal, mVal] = value ? value.split(':') : ['08', '00'];
+
+  const pickerContent = (
+    <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-4" style={{ width: 160 }}>
+      <div className="flex items-center gap-2">
+        <DrumScroll options={TC_HOURS}   value={hVal || '08'} onChange={hh => onChange(`${hh}:${mVal || '00'}`)} />
+        <span className="text-2xl font-bold text-slate-300 select-none">:</span>
+        <DrumScroll options={TC_MINUTES} value={mVal || '00'} onChange={mm => onChange(`${hVal || '08'}:${mm}`)} />
+      </div>
+      <button
+        onMouseDown={e => e.preventDefault()}
+        onClick={() => setOpen(false)}
+        className="mt-3 w-full bg-[#7B8CFA] text-white text-sm font-semibold rounded-xl py-2 hover:bg-[#6B7CF0]">
+        ตกลง
+      </button>
+    </div>
+  );
 
   return (
-    <div className="flex items-center gap-2 bg-[#F8FAFC] border border-slate-200 rounded-2xl px-3 py-1 overflow-hidden">
-      <DrumScroll options={HOURS}   value={h || '08'} onChange={hh => onChange(`${hh}:${m || '00'}`)} />
-      <span className="text-2xl font-bold text-slate-300 select-none pb-1">:</span>
-      <DrumScroll options={MINUTES} value={m || '00'} onChange={mm => onChange(`${h || '08'}:${mm}`)} />
+    <div ref={wrapRef} className="relative inline-block">
+      <input
+        type="text"
+        inputMode="numeric"
+        value={value || ''}
+        onChange={e => handleInput(e.target.value)}
+        onFocus={openPicker}
+        placeholder={placeholder}
+        maxLength={5}
+        className={timeInputCls}
+      />
+      {open && createPortal(
+        mobile ? (
+          <div className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/40"
+            onMouseDown={() => setOpen(false)}>
+            <div onMouseDown={e => e.stopPropagation()}
+              className="w-full bg-white rounded-t-3xl px-6 pt-5 pb-8">
+              <div className="flex items-center justify-between mb-3">
+                <span className="font-semibold text-slate-700">เลือกเวลา</span>
+                <button onClick={() => setOpen(false)} className="text-slate-400 p-1 rounded-lg hover:bg-slate-100 cursor-pointer"><IconX /></button>
+              </div>
+              {pickerContent}
+            </div>
+          </div>
+        ) : (
+          <div style={{ position: 'absolute', top: pos.top, left: pos.left, zIndex: 9999 }}>
+            {pickerContent}
+          </div>
+        ),
+        document.body
+      )}
     </div>
   );
 }
@@ -181,12 +275,21 @@ export default function App() {
   // --- Nav ---
   const [activeTab, setActiveTab] = useState('DASHBOARD');
 
+  // --- Responsive ---
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 640);
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 640);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
   // --- Clock ---
   const [currentTime, setCurrentTime] = useState(new Date());
 
   // --- Employees ---
   const [employees,  setEmployees]  = useState([]);
   const [empLoading, setEmpLoading] = useState(true);
+  const activeEmployees = employees.filter(e => e.isActive !== false);
 
   // --- Attendance Log tab ---
   const [adminLogs,    setAdminLogs]    = useState([]);
@@ -203,6 +306,7 @@ export default function App() {
   const [attCardState, setAttCardState] = useState({});
   const [attSavingId,  setAttSavingId]  = useState(null);
   const [attSavedId,   setAttSavedId]   = useState(null);
+  const [attSearch,    setAttSearch]    = useState('');
 
   // --- OT tab ---
   const [otEmpId,  setOtEmpId]  = useState('');
@@ -272,7 +376,7 @@ export default function App() {
     try {
       const r = await api.getPayrollPeriods();
       const periods = r.periods || [];
-      setUnpaidCount(periods.filter(p => p.status !== 'Paid').length);
+      setUnpaidCount(periods[0]?.unpaidItems ?? 0);
       setLatestPeriod(periods[0] || null);
     } catch (err) {
       console.error(err);
@@ -553,7 +657,7 @@ export default function App() {
           </div>
           <div>
             <p className="text-slate-400 text-sm">พนักงานทั้งหมด</p>
-            <p className="text-3xl font-bold text-[#222222] mt-0.5">{employees.length}<span className="text-base font-normal text-slate-400 ml-1">คน</span></p>
+            <p className="text-3xl font-bold text-[#222222] mt-0.5">{activeEmployees.length}<span className="text-base font-normal text-slate-400 ml-1">คน</span></p>
           </div>
         </div>
 
@@ -563,8 +667,11 @@ export default function App() {
             <IconPayroll />
           </div>
           <div>
-            <p className={`text-sm ${unpaidCount > 0 ? 'text-amber-600' : 'text-slate-400'}`}>งวดที่ยังไม่ได้จ่าย</p>
-            <p className={`text-3xl font-bold mt-0.5 ${unpaidCount > 0 ? 'text-amber-700' : 'text-[#222222]'}`}>{unpaidCount}<span className="text-base font-normal ml-1">งวด</span></p>
+            <p className={`text-sm ${unpaidCount > 0 ? 'text-amber-600' : 'text-slate-400'}`}>คนที่ยังไม่ได้รับเงิน</p>
+            <p className={`text-3xl font-bold mt-0.5 ${unpaidCount > 0 ? 'text-amber-700' : 'text-[#222222]'}`}>{unpaidCount}<span className="text-base font-normal ml-1">คน</span></p>
+            {latestPeriod && latestPeriod.status !== 'Paid' && (
+              <p className={`text-xs mt-0.5 ${unpaidCount > 0 ? 'text-amber-500' : 'text-slate-400'}`}>งวด {latestPeriod.startDate} — {latestPeriod.endDate}</p>
+            )}
           </div>
         </div>
 
@@ -635,7 +742,9 @@ export default function App() {
               <span className="text-xl font-bold text-[#7B8CFA]">{formatMoney(latestPeriod.grandTotal)}</span>
               {latestPeriod.status === 'Paid'
                 ? <span className="bg-emerald-100 text-emerald-600 text-xs font-bold px-3 py-1.5 rounded-full">จ่ายแล้ว</span>
-                : <button onClick={() => setActiveTab('PAYROLL')} className="bg-amber-100 text-amber-700 text-xs font-bold px-3 py-1.5 rounded-full cursor-pointer hover:bg-amber-200 transition-colors">ยังไม่จ่าย →</button>
+                : latestPeriod.status === 'Partial'
+                  ? <button onClick={() => setActiveTab('PAYROLL')} className="bg-amber-100 text-amber-700 text-xs font-bold px-3 py-1.5 rounded-full cursor-pointer hover:bg-amber-200 transition-colors flex items-center gap-1"><IconClock />จ่ายบางส่วน</button>
+                  : <button onClick={() => setActiveTab('PAYROLL')} className="bg-amber-100 text-amber-700 text-xs font-bold px-3 py-1.5 rounded-full cursor-pointer hover:bg-amber-200 transition-colors flex items-center gap-1">ยังไม่จ่าย <IconChevronRight /></button>
               }
             </div>
           </div>
@@ -654,6 +763,13 @@ export default function App() {
     if (!inTime) return 0;
     const diff = inTime.split(':').reduce((h, m, i) => i === 0 ? h + Number(m) * 60 : h + Number(m), 0) - 8 * 60;
     return diff >= 20 ? diff : 0;
+  };
+
+  const calcEarlyLeaveMins = (outTime) => {
+    if (!outTime) return 0;
+    const toMins = t => t.split(':').reduce((h, m, i) => i === 0 ? h + Number(m) * 60 : h + Number(m), 0);
+    const diff = 17 * 60 - toMins(outTime);
+    return diff > 0 ? diff : 0;
   };
 
   const calcNetHoursNum = (inTime, outTime) => {
@@ -703,119 +819,221 @@ export default function App() {
   const setCard = (empId, field, val) =>
     setAttCardState(prev => ({ ...prev, [empId]: { ...prev[empId], [field]: val } }));
 
+  const [attSavingAll, setAttSavingAll] = useState(false);
+  const [attSavedAll,  setAttSavedAll]  = useState(false);
+
+  const handleSaveAllAtt = async () => {
+    const toSave = attDayData.filter(emp => attCardState[emp.employeeId]?.inTime);
+    if (toSave.length === 0) return;
+    setAttSavingAll(true);
+    await Promise.all(toSave.map(emp => handleSaveAttCard(emp)));
+    setAttSavingAll(false);
+    setAttSavedAll(true);
+    setTimeout(() => setAttSavedAll(false), 2000);
+  };
+
   // ============================================================
   //  Render: Attendance Log
   // ============================================================
   const renderAttendance = () => (
-    <div className="flex flex-col gap-5">
-      {/* Date picker */}
+    <div className="flex flex-col gap-4">
+      {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h2 className="text-2xl font-bold text-[#222222]">บันทึกเวลา</h2>
-        <div className="flex items-center gap-2">
-          <input type="date" value={attDate}
-            onChange={e => setAttDate(e.target.value)}
-            className="bg-white border border-slate-200 rounded-2xl px-4 py-2.5 text-base outline-none focus:border-[#7B8CFA]" />
+        <div className="flex items-center gap-2 flex-wrap">
+          <input type="date" value={attDate} onChange={e => setAttDate(e.target.value)}
+            className="bg-white border border-slate-200 rounded-2xl px-4 py-2.5 text-sm outline-none focus:border-[#7B8CFA]" />
           <button onClick={() => loadAttendanceDay(attDate)}
             className="bg-[#F2F2F2] p-2.5 rounded-2xl hover:bg-slate-200 cursor-pointer"><IconRefresh /></button>
+          <button onClick={handleSaveAllAtt} disabled={attSavingAll || attDayData.length === 0}
+            className={`font-bold px-5 py-2.5 rounded-2xl text-sm cursor-pointer disabled:opacity-40 active:scale-95 transition-all
+              ${attSavedAll ? 'bg-emerald-500 text-white' : 'bg-[#7B8CFA] text-white'}`}>
+            {attSavingAll ? 'กำลังบันทึก...' : attSavedAll ? <span className="flex items-center gap-1.5"><IconCheck />บันทึกแล้ว</span> : 'บันทึกทั้งหมด'}
+          </button>
         </div>
       </div>
 
-      {attDayLoading ? (
+      {/* Search */}
+      {!attDayLoading && attDayData.length > 0 && (
+        <div className="relative">
+          <svg className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-4.35-4.35M17 11A6 6 0 111 11a6 6 0 0116 0z" />
+          </svg>
+          <input value={attSearch} onChange={e => setAttSearch(e.target.value)}
+            placeholder="ค้นหาชื่อพนักงาน..."
+            className="w-full bg-white border border-slate-200 rounded-2xl pl-10 pr-10 py-3 text-sm outline-none focus:border-[#7B8CFA] transition-colors" />
+          {attSearch && (
+            <button onClick={() => setAttSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer p-1">
+              <IconX />
+            </button>
+          )}
+        </div>
+      )}
+
+      {(() => {
+        const filteredAtt = attSearch.trim()
+          ? attDayData.filter(e => e.name.toLowerCase().includes(attSearch.toLowerCase()))
+          : attDayData;
+        return attDayLoading ? (
         <div className="flex justify-center py-16 text-slate-400 gap-3">
           <div className="w-6 h-6 border-4 border-slate-100 border-t-[#7B8CFA] rounded-full animate-spin" />
           กำลังโหลด...
         </div>
       ) : attDayData.length === 0 ? (
         <div className="text-center py-16 text-slate-400">ยังไม่มีพนักงาน</div>
-      ) : (
-        <div className="flex flex-col gap-4">
-          {attDayData.map(emp => {
-            const s         = attCardState[emp.employeeId] || {};
-            const lateMins  = calcLateMins(s.inTime);
-            const lateDeduct= lateMins > 0 ? lateMins * (emp.rate / WORK_MINS) : 0;
-            const netHoursN = calcNetHoursNum(s.inTime, s.outTime);
-            const otAmt     = emp.otHours > 0 ? emp.otHours * (emp.rate / 8) * emp.otRate : 0;
-            const todayWage = emp.rateType === 'daily'
-              ? emp.rate - lateDeduct + otAmt
+      ) : filteredAtt.length === 0 ? (
+        <div className="text-center py-12 text-slate-400 text-sm">ไม่พบพนักงานที่ตรงกับ "{attSearch}"</div>
+      ) : isMobile ? (
+        /* ── Mobile: card per employee ── */
+        <div className="flex flex-col gap-3">
+          {filteredAtt.map((emp) => {
+            const s              = attCardState[emp.employeeId] || {};
+            const lateMins       = calcLateMins(s.inTime);
+            const earlyLeaveMins = calcEarlyLeaveMins(s.outTime);
+            const lateDeduct     = lateMins > 0 ? lateMins * (emp.rate / WORK_MINS) : 0;
+            const netHoursN      = calcNetHoursNum(s.inTime, s.outTime);
+            const otAmt          = emp.otHours > 0 ? emp.otHours * (emp.rate / 8) * emp.otRate : 0;
+            const todayWage      = emp.rateType === 'daily'
+              ? (emp.rate / WORK_MINS) * (WORK_MINS - lateMins - earlyLeaveMins) + otAmt
               : (netHoursN ? netHoursN * emp.rate + otAmt : null);
-            const isSaving  = attSavingId === emp.employeeId;
-            const isSaved   = attSavedId  === emp.employeeId;
-            const hasData   = !!(emp.inTime || emp.outTime);
+            const isSaving   = attSavingId === emp.employeeId;
+            const isSaved    = attSavedId  === emp.employeeId;
+            const hasData    = !!(emp.inTime || emp.outTime);
 
             return (
               <div key={emp.employeeId}
-                className={`bg-white rounded-3xl border shadow-sm p-5 flex flex-col gap-4
-                  ${hasData ? 'border-[#7B8CFA]/30' : 'border-slate-100'}`}>
-
-                {/* Header */}
+                className={`bg-white rounded-2xl border shadow-sm px-4 py-4 flex flex-col gap-3 ${hasData ? 'border-[#7B8CFA]/30' : 'border-slate-100'}`}>
+                {/* Name row */}
                 <div className="flex items-center justify-between">
-                  <p className="font-bold text-[#222222]">{emp.name}</p>
-                  {hasData && (
-                    <span className="text-xs bg-[#7B8CFA]/10 text-[#7B8CFA] font-semibold px-2.5 py-1 rounded-full">
-                      มีข้อมูล
-                    </span>
-                  )}
+                  <span className="font-bold text-[#222222] text-base">{emp.name}</span>
+                  {hasData && <span className="text-[10px] bg-[#7B8CFA]/15 text-[#7B8CFA] px-2 py-0.5 rounded-full font-bold">มีข้อมูล</span>}
                 </div>
-
-                {/* Time pickers */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-xs font-semibold text-slate-400">เวลาเข้างาน</label>
-                    <TimePicker value={s.inTime || '08:00'} onChange={v => setCard(emp.employeeId, 'inTime', v)} />
+                {/* Time row */}
+                <div className="flex items-center gap-4">
+                  <div className="flex-1 flex flex-col items-center gap-1">
+                    <span className="text-xs text-slate-400 font-medium">เข้างาน</span>
+                    <TimeCombobox value={s.inTime || ''} onChange={v => setCard(emp.employeeId, 'inTime', v)} placeholder="08:00" />
                   </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-xs font-semibold text-slate-400">เวลาออกงาน</label>
-                    <TimePicker value={s.outTime || '17:00'} onChange={v => setCard(emp.employeeId, 'outTime', v)} />
+                  <div className="text-slate-300"><IconArrowRight /></div>
+                  <div className="flex-1 flex flex-col items-center gap-1">
+                    <span className="text-xs text-slate-400 font-medium">ออกงาน</span>
+                    <TimeCombobox value={s.outTime || ''} onChange={v => setCard(emp.employeeId, 'outTime', v)} placeholder="17:00" />
                   </div>
                 </div>
-
-                {/* Auto-calculated stats */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  <div className="bg-[#F8FAFC] rounded-2xl px-3 py-2 text-center">
-                    <p className="text-xs text-slate-400 mb-0.5">ชม.สุทธิ</p>
-                    <p className="font-bold text-[#7B8CFA] text-sm">
-                      {netHoursN ? `${netHoursN.toFixed(1)} ชม.` : '—'}
-                    </p>
-                  </div>
-                  <div className={`rounded-2xl px-3 py-2 text-center ${lateMins > 0 ? 'bg-red-50' : 'bg-[#F8FAFC]'}`}>
-                    <p className="text-xs text-slate-400 mb-0.5">มาสาย</p>
-                    <p className={`font-bold text-sm ${lateMins > 0 ? 'text-red-500' : 'text-slate-300'}`}>
-                      {lateMins > 0 ? `${lateMins} นาที` : '—'}
-                    </p>
-                  </div>
-                  <div className={`rounded-2xl px-3 py-2 text-center ${lateMins > 0 ? 'bg-red-50' : 'bg-[#F8FAFC]'}`}>
-                    <p className="text-xs text-slate-400 mb-0.5">หักสาย</p>
-                    <p className={`font-bold text-sm ${lateMins > 0 ? 'text-red-500' : 'text-slate-300'}`}>
-                      {lateMins > 0 ? `฿${lateDeduct.toFixed(0)}` : '—'}
-                    </p>
-                  </div>
-                  <div className="bg-[#F8FAFC] rounded-2xl px-3 py-2 text-center">
-                    <p className="text-xs text-slate-400 mb-0.5">
-                      ค่าแรงวันนี้{emp.otHours > 0 ? ` +OT ${emp.otHours}ชม.` : ''}
-                    </p>
-                    <p className="font-bold text-emerald-600 text-sm">
-                      {todayWage != null ? `฿${todayWage.toFixed(0)}` : '—'}
-                    </p>
-                  </div>
+                {/* Stats row */}
+                <div className="flex items-center gap-3 text-xs">
+                  <span className="text-slate-400">ชม.สุทธิ <span className="font-bold text-[#7B8CFA]">{netHoursN ? netHoursN.toFixed(1) : '—'}</span></span>
+                  {lateMins > 0 && <span className="text-red-500 font-medium">สาย {lateMins} นาที</span>}
+                  {earlyLeaveMins > 0 && <span className="text-orange-500 font-medium">กลับก่อน {earlyLeaveMins} นาที</span>}
+                  {emp.otHours > 0 && <span className="text-emerald-600 font-medium">OT {emp.otHours} ชม.</span>}
+                  {todayWage != null && <span className="ml-auto font-bold text-emerald-600">฿{todayWage.toFixed(0)}</span>}
                 </div>
-
                 {/* Note + Save */}
-                <div className="flex gap-3 items-center">
-                  <input type="text" value={s.note || ''} onChange={e => setCard(emp.employeeId, 'note', e.target.value)}
-                    placeholder="หมายเหตุ (ไม่บังคับ)"
-                    className="flex-1 bg-[#F8FAFC] border border-slate-200 rounded-2xl px-4 py-2.5 text-sm outline-none focus:border-[#7B8CFA]" />
+                <div className="flex items-center gap-2">
+                  <input type="text" value={s.note || ''}
+                    onChange={e => setCard(emp.employeeId, 'note', e.target.value)}
+                    placeholder="หมายเหตุ"
+                    className="flex-1 bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-[#7B8CFA]" />
                   <button onClick={() => handleSaveAttCard(emp)}
                     disabled={!s.inTime || isSaving}
-                    className={`font-bold px-5 py-2.5 rounded-2xl cursor-pointer text-sm active:scale-95 transition-all flex-shrink-0
-                      ${isSaved ? 'bg-emerald-500 text-white' : 'bg-[#7B8CFA] disabled:opacity-40 text-white'}`}>
-                    {isSaving ? '...' : isSaved ? '✓ บันทึกแล้ว' : 'บันทึก'}
+                    className={`font-bold px-4 py-2 rounded-xl text-sm cursor-pointer disabled:opacity-40 active:scale-95 transition-all whitespace-nowrap
+                      ${isSaved ? 'bg-emerald-500 text-white' : 'bg-[#7B8CFA] text-white'}`}>
+                    {isSaving ? '...' : isSaved ? <IconCheck cls="w-4 h-4" /> : 'บันทึก'}
                   </button>
                 </div>
               </div>
             );
           })}
         </div>
-      )}
+      ) : (
+        /* ── Desktop: table layout ── */
+        <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-[#F8FAFC] border-b border-slate-100">
+                  <th className="px-4 py-3 text-left font-bold text-slate-500 text-xs whitespace-nowrap">ชื่อ</th>
+                  <th className="px-3 py-3 text-center font-bold text-slate-500 text-xs whitespace-nowrap">เข้างาน</th>
+                  <th className="px-3 py-3 text-center font-bold text-slate-500 text-xs whitespace-nowrap">ออกงาน</th>
+                  <th className="px-3 py-3 text-center font-bold text-slate-500 text-xs whitespace-nowrap">ชม.สุทธิ</th>
+                  <th className="px-3 py-3 text-center font-bold text-slate-500 text-xs whitespace-nowrap">สาย<br/>(นาที)</th>
+                  <th className="px-3 py-3 text-center font-bold text-slate-500 text-xs whitespace-nowrap">หักสาย<br/>(฿)</th>
+                  <th className="px-3 py-3 text-center font-bold text-slate-500 text-xs whitespace-nowrap">OT<br/>(ชม.)</th>
+                  <th className="px-3 py-3 text-center font-bold text-slate-500 text-xs whitespace-nowrap">ค่าแรงวันนี้</th>
+                  <th className="px-3 py-3 text-left font-bold text-slate-500 text-xs">หมายเหตุ</th>
+                  <th className="px-3 py-3"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredAtt.map((emp, idx) => {
+                  const s              = attCardState[emp.employeeId] || {};
+                  const lateMins       = calcLateMins(s.inTime);
+                  const earlyLeaveMins = calcEarlyLeaveMins(s.outTime);
+                  const lateDeduct     = lateMins > 0 ? lateMins * (emp.rate / WORK_MINS) : 0;
+                  const netHoursN      = calcNetHoursNum(s.inTime, s.outTime);
+                  const otAmt          = emp.otHours > 0 ? emp.otHours * (emp.rate / 8) * emp.otRate : 0;
+                  const todayWage      = emp.rateType === 'daily'
+                    ? (emp.rate / WORK_MINS) * (WORK_MINS - lateMins - earlyLeaveMins) + otAmt
+                    : (netHoursN ? netHoursN * emp.rate + otAmt : null);
+                  const isSaving   = attSavingId === emp.employeeId;
+                  const isSaved    = attSavedId  === emp.employeeId;
+                  const hasData    = !!(emp.inTime || emp.outTime);
+
+                  return (
+                    <tr key={emp.employeeId}
+                      className={`border-b border-slate-50 transition-colors
+                        ${hasData ? 'bg-[#7B8CFA]/4' : idx % 2 === 0 ? 'bg-white' : 'bg-[#FAFAFA]'}`}>
+
+                      <td className="px-4 py-3 font-semibold text-[#222222] whitespace-nowrap">
+                        {emp.name}
+                        {hasData && <span className="ml-2 text-[10px] bg-[#7B8CFA]/15 text-[#7B8CFA] px-1.5 py-0.5 rounded-full font-bold">มีข้อมูล</span>}
+                      </td>
+                      <td className="px-3 py-3 text-center">
+                        <TimeCombobox value={s.inTime || ''} onChange={v => setCard(emp.employeeId, 'inTime', v)} placeholder="08:00" />
+                      </td>
+                      <td className="px-3 py-3 text-center">
+                        <TimeCombobox value={s.outTime || ''} onChange={v => setCard(emp.employeeId, 'outTime', v)} placeholder="17:00" />
+                      </td>
+                      <td className="px-3 py-3 text-center font-medium text-[#7B8CFA] whitespace-nowrap">
+                        {netHoursN ? `${netHoursN.toFixed(1)}` : <span className="text-slate-300">—</span>}
+                      </td>
+                      <td className={`px-3 py-3 text-center font-medium whitespace-nowrap ${lateMins > 0 ? 'text-red-500' : 'text-slate-300'}`}>
+                        {lateMins > 0 ? lateMins : '—'}
+                      </td>
+                      <td className={`px-3 py-3 text-center font-medium whitespace-nowrap ${lateMins > 0 ? 'text-red-500' : 'text-slate-300'}`}>
+                        {lateMins > 0 ? `฿${lateDeduct.toFixed(0)}` : '—'}
+                      </td>
+                      <td className="px-3 py-3 text-center whitespace-nowrap">
+                        {emp.otHours > 0
+                          ? <span className="text-emerald-600 font-medium">{emp.otHours}</span>
+                          : <span className="text-slate-300">—</span>}
+                      </td>
+                      <td className="px-3 py-3 text-center font-bold text-emerald-600 whitespace-nowrap">
+                        {todayWage != null ? `฿${todayWage.toFixed(0)}` : <span className="text-slate-300">—</span>}
+                      </td>
+                      <td className="px-3 py-3">
+                        <input type="text" value={s.note || ''}
+                          onChange={e => setCard(emp.employeeId, 'note', e.target.value)}
+                          placeholder="หมายเหตุ"
+                          className="bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-[#7B8CFA] w-full min-w-[100px]" />
+                      </td>
+                      <td className="px-3 py-3 text-right">
+                        <button onClick={() => handleSaveAttCard(emp)}
+                          disabled={!s.inTime || isSaving}
+                          className={`font-bold px-4 py-2 rounded-xl text-xs cursor-pointer disabled:opacity-40 active:scale-95 transition-all whitespace-nowrap
+                            ${isSaved ? 'bg-emerald-500 text-white' : 'bg-[#7B8CFA] text-white'}`}>
+                          {isSaving ? '...' : isSaved ? <IconCheck cls="w-4 h-4" /> : 'บันทึก'}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      );
+      })()}
     </div>
   );
 
@@ -835,7 +1053,7 @@ export default function App() {
           <select value={otEmpId} onChange={e => { setOtEmpId(e.target.value); setOtSuccess(null); setOtError(null); }}
             className="bg-white border border-slate-200 rounded-xl px-4 py-3 text-base outline-none focus:border-[#7B8CFA] cursor-pointer">
             <option value="">-- เลือกพนักงาน --</option>
-            {employees.map(emp => <option key={emp.employeeId} value={emp.employeeId}>{emp.name} ({emp.employeeId})</option>)}
+            {activeEmployees.map(emp => <option key={emp.employeeId} value={emp.employeeId}>{emp.name} ({emp.employeeId})</option>)}
           </select>
         </div>
 
@@ -875,7 +1093,7 @@ export default function App() {
           {otSaving ? <><div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />กำลังบันทึก...</> : 'บันทึก OT'}
         </button>
 
-        {otSuccess && <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-3 rounded-xl text-sm font-medium">✓ {otSuccess}</div>}
+        {otSuccess && <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-3 rounded-xl text-sm font-medium flex items-center gap-2"><IconCheck />{otSuccess}</div>}
         {otError   && <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-xl text-sm font-medium">{otError}</div>}
       </div>
     </div>
@@ -895,9 +1113,10 @@ export default function App() {
           </div>
           <PayrollPeriodDetail
             period={selectedPeriod}
-            employees={employees}
+            employees={activeEmployees}
             onClose={() => setSelectedPeriod(null)}
             onPaid={() => loadPayrollPeriods()}
+            onDeleted={() => { setSelectedPeriod(null); loadPayrollPeriods(); }}
           />
         </>
       ) : (
@@ -949,7 +1168,9 @@ export default function App() {
                     <span className="text-lg font-bold text-[#7B8CFA]">{formatMoney(p.grandTotal)}</span>
                     {p.status === 'Paid'
                       ? <span className="bg-green-100 text-green-600 text-xs font-bold px-3 py-1 rounded-full">จ่ายแล้ว</span>
-                      : <span className="bg-amber-100 text-amber-700 text-xs font-bold px-3 py-1 rounded-full">ยังไม่จ่าย →</span>
+                      : p.status === 'Partial'
+                        ? <span className="bg-amber-100 text-amber-700 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1"><IconClock />จ่ายบางส่วน</span>
+                        : <span className="bg-amber-100 text-amber-700 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1">ยังไม่จ่าย <IconChevronRight /></span>
                     }
                   </div>
                 </button>
@@ -1085,7 +1306,7 @@ export default function App() {
             {activeTab === 'DASHBOARD'  && renderDashboard()}
             {activeTab === 'ATTENDANCE' && renderAttendance()}
             {activeTab === 'OT'         && renderOT()}
-            {activeTab === 'PIECE_RATE' && <PieceRatePage employees={employees} />}
+            {activeTab === 'PIECE_RATE' && <PieceRatePage employees={activeEmployees} />}
             {activeTab === 'ADVANCES'   && <AdvancesPage />}
             {activeTab === 'PAYROLL'    && renderPayroll()}
             {activeTab === 'EMPLOYEES'  && (

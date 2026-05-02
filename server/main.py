@@ -107,22 +107,16 @@ def get_employees():
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT EmployeeId, Name, Department, Rate, RateType
-        FROM Employees WHERE IsActive = 1
+        SELECT EmployeeId, Name, Department, Rate, RateType, IsActive
+        FROM Employees ORDER BY IsActive DESC, Name
     """)
     rows = cursor.fetchall()
     conn.close()
-
-    employees = []
-    for r in rows:
-        employees.append({
-            "employeeId": r[0],
-            "name":       r[1],
-            "department": r[2],
-            "rate":       float(r[3]),
-            "rateType":   r[4],
-        })
-    return {"employees": employees}
+    return {"employees": [
+        {"employeeId": r[0], "name": r[1], "department": r[2],
+         "rate": float(r[3]), "rateType": r[4], "isActive": bool(r[5])}
+        for r in rows
+    ]}
 
 # ============================================================
 #  POST /api/attendance — บันทึกเวลาเข้าออก
@@ -455,7 +449,26 @@ def update_employee(employee_id: str, body: UpdateEmployeeBody):
     return {"success": True, "message": f"อัปเดตข้อมูล {body.name} เรียบร้อย"}
 
 # ============================================================
-#  DELETE /api/employees/{employeeId} — ปิดใช้งานพนักงาน
+#  PUT /api/employees/{id}/active — เปิด/ปิดใช้งานพนักงาน
+# ============================================================
+class SetActiveBody(BaseModel):
+    isActive: bool
+
+@app.put("/api/employees/{employee_id}/active")
+def set_employee_active(employee_id: str, body: SetActiveBody):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE Employees SET IsActive = ? WHERE EmployeeId = ?",
+                   1 if body.isActive else 0, employee_id)
+    if cursor.rowcount == 0:
+        conn.close()
+        raise HTTPException(status_code=404, detail="ไม่พบพนักงาน")
+    conn.commit()
+    conn.close()
+    return {"success": True}
+
+# ============================================================
+#  DELETE /api/employees/{employeeId} — ปิดใช้งานพนักงาน (legacy)
 # ============================================================
 @app.delete("/api/employees/{employee_id}")
 def delete_employee(employee_id: str):
@@ -534,7 +547,7 @@ def create_payroll_period(body: CreatePayrollPeriodBody):
 
     # โหลด attendance logs ในช่วงวันที่
     cursor.execute("""
-        SELECT EmployeeId, Name, ActionType, DateStr, TimeStr
+        SELECT EmployeeId, EmployeeName, ActionType, DateStr, TimeStr
         FROM AttendanceLogs
         WHERE CAST(DateStr AS DATE) BETWEEN ? AND ?
         ORDER BY EmployeeId, DateStr, TimeStr
@@ -633,18 +646,33 @@ def get_payroll_periods():
         FROM PayrollPeriods ORDER BY Id DESC
     """)
     rows = cursor.fetchall()
-    conn.close()
-    return {"periods": [
+    periods = [
         {
-            "id":         r[0],
-            "startDate":  str(r[1]),
-            "endDate":    str(r[2]),
-            "grandTotal": float(r[3]),
-            "status":     r[4],
-            "paidAt":     str(r[5]) if r[5] else None,
-            "createdAt":  str(r[6]),
+            "id":          r[0],
+            "startDate":   str(r[1]),
+            "endDate":     str(r[2]),
+            "grandTotal":  float(r[3]),
+            "status":      r[4],
+            "paidAt":      str(r[5]) if r[5] else None,
+            "createdAt":   str(r[6]),
+            "unpaidItems": 0,
         } for r in rows
-    ]}
+    ]
+    try:
+        cursor.execute("""
+            SELECT PeriodId, COUNT(*)
+            FROM PayrollPeriodItems
+            WHERE ISNULL(PaidStatus, 'Unpaid') != 'Paid'
+              AND ISNULL(IsDeferred, 0) = 0
+            GROUP BY PeriodId
+        """)
+        unpaid_map = {r[0]: r[1] for r in cursor.fetchall()}
+        for p in periods:
+            p["unpaidItems"] = unpaid_map.get(p["id"], 0)
+    except Exception:
+        pass
+    conn.close()
+    return {"periods": periods}
 
 # ============================================================
 #  GET /api/payroll/periods/{id} — ดูรายละเอียดงวด
@@ -658,16 +686,37 @@ def get_payroll_period_detail(period_id: int):
     if not p:
         conn.close()
         raise HTTPException(status_code=404, detail="ไม่พบงวดนี้")
+    # query base (ทำงานได้แม้ยังไม่มี PaidStatus/PaidAt/PaymentMethod)
     cursor.execute("""
         SELECT EmployeeId, Name, Department, WorkDays, BaseAmount, LateDeduction,
                OTHours, OTAmount, PieceRateTotal, AdvanceDeduction, NetTotal
         FROM PayrollPeriodItems WHERE PeriodId=? ORDER BY Name
     """, period_id)
+    base_rows = cursor.fetchall()
     items = [{"employeeId": r[0], "name": r[1], "department": r[2], "workDays": r[3],
               "baseAmount": float(r[4]), "lateDeduction": float(r[5]),
               "otHours": float(r[6]), "otAmount": float(r[7]),
               "pieceRateTotal": float(r[8]), "advanceDeduction": float(r[9]),
-              "netTotal": float(r[10]), "pieceLogs": []} for r in cursor.fetchall()]
+              "netTotal": float(r[10]), "pieceLogs": [],
+              "paidStatus": "Unpaid", "paidAt": None, "paymentMethod": None, "isDeferred": False}
+             for r in base_rows]
+
+    # เพิ่ม PaidStatus/PaidAt/PaymentMethod/IsDeferred ถ้ามีคอลัมน์แล้ว
+    try:
+        cursor.execute("""
+            SELECT EmployeeId, PaidStatus, PaidAt, PaymentMethod, ISNULL(IsDeferred,0)
+            FROM PayrollPeriodItems WHERE PeriodId=? ORDER BY Name
+        """, period_id)
+        for row in cursor.fetchall():
+            for item in items:
+                if item["employeeId"] == row[0]:
+                    item["paidStatus"]    = row[1]
+                    item["paidAt"]        = str(row[2]) if row[2] else None
+                    item["paymentMethod"] = row[3]
+                    item["isDeferred"]    = bool(row[4])
+                    break
+    except Exception:
+        pass  # คอลัมน์ยังไม่มี ใช้ค่า default ที่ set ไว้แล้ว
 
     # ดึง piece rate logs ของงวดนี้
     cursor.execute("""
@@ -698,32 +747,152 @@ def get_payroll_period_detail(period_id: int):
             "grandTotal": float(p[3]), "status": p[4], "paidAt": str(p[5]) if p[5] else None, "items": items}
 
 # ============================================================
-#  PUT /api/payroll/periods/{id}/pay — ยืนยันจ่ายเงิน
+#  helper — คำนวณ status งวดใหม่ (นับเฉพาะ non-deferred)
+# ============================================================
+def recalc_period_status(cursor, period_id):
+    cursor.execute("""
+        SELECT
+            SUM(CASE WHEN PaidStatus='Paid' THEN 1 ELSE 0 END),
+            SUM(CASE WHEN PaidStatus='Unpaid' AND ISNULL(IsDeferred,0)=0 THEN 1 ELSE 0 END)
+        FROM PayrollPeriodItems WHERE PeriodId=?
+    """, period_id)
+    row = cursor.fetchone()
+    paid_count, unpaid_active = (row[0] or 0), (row[1] or 0)
+    if unpaid_active == 0:
+        cursor.execute(
+            "UPDATE PayrollPeriods SET Status='Paid', PaidAt=COALESCE(PaidAt,GETDATE()) WHERE Id=?", period_id)
+    elif paid_count > 0:
+        cursor.execute("UPDATE PayrollPeriods SET Status='Partial' WHERE Id=?", period_id)
+    else:
+        cursor.execute("UPDATE PayrollPeriods SET Status='Unpaid' WHERE Id=?", period_id)
+
+# ============================================================
+#  PUT /api/payroll/periods/{id}/items/{employee_id}/defer — toggle เลื่อนจ่าย
+# ============================================================
+@app.put("/api/payroll/periods/{period_id}/items/{employee_id}/defer")
+def toggle_defer_item(period_id: int, employee_id: str):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT PaidStatus, ISNULL(IsDeferred,0) FROM PayrollPeriodItems
+        WHERE PeriodId=? AND EmployeeId=?
+    """, period_id, employee_id)
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="ไม่พบรายการ")
+    if row[0] == 'Paid':
+        conn.close()
+        raise HTTPException(status_code=400, detail="จ่ายแล้ว ไม่สามารถเลื่อนได้")
+    new_deferred = 0 if row[1] else 1
+    cursor.execute("""
+        UPDATE PayrollPeriodItems SET IsDeferred=? WHERE PeriodId=? AND EmployeeId=?
+    """, new_deferred, period_id, employee_id)
+    recalc_period_status(cursor, period_id)
+    conn.commit()
+    conn.close()
+    return {"success": True, "isDeferred": bool(new_deferred)}
+
+# ============================================================
+#  PUT /api/payroll/periods/{id}/items/{employee_id}/pay — จ่ายรายคน
+# ============================================================
+class PayItemBody(BaseModel):
+    paymentMethod: str = "เงินสด"
+
+@app.put("/api/payroll/periods/{period_id}/items/{employee_id}/pay")
+def pay_payroll_period_item(period_id: int, employee_id: str, body: PayItemBody):
+    conn = get_db()
+    cursor = conn.cursor()
+
+    # ตรวจว่า item มีอยู่และยังไม่จ่าย
+    cursor.execute("""
+        SELECT PaidStatus, AdvanceDeduction, Name
+        FROM PayrollPeriodItems WHERE PeriodId=? AND EmployeeId=?
+    """, period_id, employee_id)
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="ไม่พบรายการ")
+    if row[0] == 'Paid':
+        conn.close()
+        raise HTTPException(status_code=400, detail="จ่ายแล้ว")
+
+    advance_deduction, emp_name = float(row[1]), row[2]
+
+    # อัปเดต item
+    cursor.execute("""
+        UPDATE PayrollPeriodItems
+        SET PaidStatus='Paid', PaidAt=GETDATE(), PaymentMethod=?
+        WHERE PeriodId=? AND EmployeeId=?
+    """, body.paymentMethod, period_id, employee_id)
+
+    # บันทึกหักเบิก (ถ้ามี)
+    if advance_deduction > 0:
+        cursor.execute("""
+            INSERT INTO WageAdvances (EmployeeId, EmployeeName, TranDate, Type, Amount, Note, PeriodId)
+            VALUES (?, ?, CAST(GETDATE() AS DATE), 'หัก', ?, 'หักจากงวดค่าแรง', ?)
+        """, employee_id, emp_name, advance_deduction, period_id)
+
+    # อัปเดตสถานะงวด (นับเฉพาะ non-deferred)
+    recalc_period_status(cursor, period_id)
+
+    conn.commit()
+    conn.close()
+    return {"success": True}
+
+# ============================================================
+#  DELETE /api/payroll/periods/{id} — ลบงวด (เฉพาะ Unpaid)
+# ============================================================
+@app.delete("/api/payroll/periods/{period_id}")
+def delete_payroll_period(period_id: int):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT Status FROM PayrollPeriods WHERE Id=?", period_id)
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="ไม่พบงวดนี้")
+    if row[0] != "Unpaid":
+        conn.close()
+        raise HTTPException(status_code=400, detail="ไม่สามารถลบงวดที่จ่ายไปแล้วได้")
+    cursor.execute("DELETE FROM PieceRateLogs WHERE PeriodId=?", period_id)
+    cursor.execute("DELETE FROM PayrollPeriodItems WHERE PeriodId=?", period_id)
+    cursor.execute("DELETE FROM PayrollPeriods WHERE Id=?", period_id)
+    conn.commit()
+    conn.close()
+    return {"success": True}
+
+# ============================================================
+#  PUT /api/payroll/periods/{id}/pay — ยืนยันจ่ายทั้งงวด (legacy)
 # ============================================================
 @app.put("/api/payroll/periods/{period_id}/pay")
 def pay_payroll_period(period_id: int):
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute("""
-        UPDATE PayrollPeriods SET Status='Paid', PaidAt=GETDATE() WHERE Id=? AND Status='Unpaid'
+        UPDATE PayrollPeriods SET Status='Paid', PaidAt=GETDATE() WHERE Id=? AND Status!='Paid'
     """, period_id)
-    if cursor.rowcount == 0:
-        conn.close()
-        raise HTTPException(status_code=400, detail="งวดนี้จ่ายแล้ว หรือไม่พบ")
-    # บันทึกการหักเบิกเข้า WageAdvances
+    # จ่ายทุก item ที่ยังค้างอยู่
+    cursor.execute("""
+        UPDATE PayrollPeriodItems SET PaidStatus='Paid', PaidAt=GETDATE()
+        WHERE PeriodId=? AND PaidStatus='Unpaid'
+    """, period_id)
+    # บันทึกการหักเบิกที่ยังไม่ได้หัก
     cursor.execute("""
         SELECT ppi.EmployeeId, e.Name, ppi.AdvanceDeduction
         FROM PayrollPeriodItems ppi
         JOIN Employees e ON ppi.EmployeeId = e.EmployeeId
         WHERE ppi.PeriodId = ? AND ppi.AdvanceDeduction > 0
+          AND NOT EXISTS (
+            SELECT 1 FROM WageAdvances wa
+            WHERE wa.PeriodId=ppi.PeriodId AND wa.EmployeeId=ppi.EmployeeId AND wa.Type='หัก'
+          )
     """, period_id)
-    deductions = cursor.fetchall()
-    for emp_id, emp_name, amount in deductions:
+    for emp_id, emp_name, amount in cursor.fetchall():
         cursor.execute("""
             INSERT INTO WageAdvances (EmployeeId, EmployeeName, TranDate, Type, Amount, Note, PeriodId)
             VALUES (?, ?, CAST(GETDATE() AS DATE), 'หัก', ?, 'หักจากงวดค่าแรง', ?)
         """, emp_id, emp_name, float(amount), period_id)
-
     conn.commit()
     conn.close()
     return {"success": True, "message": "ยืนยันการจ่ายเงินเรียบร้อย"}
@@ -832,24 +1001,24 @@ def save_attendance_day(body: AttendanceDayBody):
     cursor.execute("""
         DELETE FROM AttendanceLogs
         WHERE EmployeeId = ? AND CAST(DateStr AS DATE) = ?
-        AND ActionType IN ('เข้างาน', 'ออกงาน')
-    """, body.employeeId, body.date)
+        AND ActionType IN (?, ?)
+    """, body.employeeId, body.date, 'เข้างาน', 'ออกงาน')
 
     ts = int(now.timestamp() * 1000)
     if body.inTime:
         cursor.execute("""
             INSERT INTO AttendanceLogs
                 (Id, EmployeeId, EmployeeName, ActionType, TimestampServer, DateStr, TimeStr, ConfidenceScore, DeviceId)
-            VALUES (?, ?, ?, 'เข้างาน', ?, ?, ?, 0, 'ADMIN')
-        """, f"LOG-{ts}-IN", body.employeeId, body.employeeName,
-            f"{body.date} {body.inTime}:00", body.date, f"{body.inTime}:00")
+            VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)
+        """, f"LOG-{ts}-IN", body.employeeId, body.employeeName, 'เข้างาน',
+            f"{body.date} {body.inTime}:00", body.date, f"{body.inTime}:00", 'ADMIN')
     if body.outTime:
         cursor.execute("""
             INSERT INTO AttendanceLogs
                 (Id, EmployeeId, EmployeeName, ActionType, TimestampServer, DateStr, TimeStr, ConfidenceScore, DeviceId)
-            VALUES (?, ?, ?, 'ออกงาน', ?, ?, ?, 0, 'ADMIN')
-        """, f"LOG-{ts+1}-OUT", body.employeeId, body.employeeName,
-            f"{body.date} {body.outTime}:00", body.date, f"{body.outTime}:00")
+            VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)
+        """, f"LOG-{ts+1}-OUT", body.employeeId, body.employeeName, 'ออกงาน',
+            f"{body.date} {body.outTime}:00", body.date, f"{body.outTime}:00", 'ADMIN')
 
     conn.commit()
     conn.close()

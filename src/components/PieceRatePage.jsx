@@ -7,6 +7,11 @@ const formatMoney = (n) =>
   '฿' + Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const inputCls = 'bg-[#F8FAFC] border border-slate-200 rounded-2xl px-4 py-3 text-base outline-none focus:border-[#7B8CFA] w-full';
 
+const IconCheck = () => (
+  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
+  </svg>
+);
 const IconTrash = () => (
   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
@@ -338,7 +343,7 @@ export default function PieceRatePage({ employees }) {
                   className="bg-[#7B8CFA] disabled:opacity-40 text-white font-bold px-6 py-3 rounded-2xl cursor-pointer active:scale-95 transition-transform">
                   {saving ? 'กำลังบันทึก...' : `บันทึกทั้งหมด (${queue.length} รายการ)`}
                 </button>
-                {saveOk && <p className="text-emerald-600 font-medium text-sm">✓ บันทึกแล้ว</p>}
+                {saveOk && <p className="text-emerald-600 font-medium text-sm flex items-center gap-1"><IconCheck />บันทึกแล้ว</p>}
               </div>
             </div>
           )}
@@ -547,8 +552,9 @@ export default function PieceRatePage({ employees }) {
               </div>
             </div>
             {jCatId && categories.find(c => c.id === Number(jCatId))?.hasLength && (
-              <div className="bg-[#7B8CFA]/8 border border-[#7B8CFA]/20 rounded-2xl px-4 py-2.5 text-sm text-[#7B8CFA]">
-                ✓ รายการนี้จะใช้สูตร +{categories.find(c => c.id === Number(jCatId))?.extraPerUnit} บาท/ศอก จากประเภท "{categories.find(c => c.id === Number(jCatId))?.name}" อัตโนมัติ
+              <div className="bg-[#7B8CFA]/8 border border-[#7B8CFA]/20 rounded-2xl px-4 py-2.5 text-sm text-[#7B8CFA] flex items-start gap-2">
+                <IconCheck />
+                <span>รายการนี้จะใช้สูตร +{categories.find(c => c.id === Number(jCatId))?.extraPerUnit} บาท/ศอก จากประเภท "{categories.find(c => c.id === Number(jCatId))?.name}" อัตโนมัติ</span>
               </div>
             )}
           </div>

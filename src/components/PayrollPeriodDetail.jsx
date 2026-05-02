@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom';
 import * as XLSX from 'xlsx';
 import * as api from '../lib/api';
 
+const fmtDate = (s) => s ? s.slice(0, 10) : '';
+
 const fmt = (n) => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtB = (n) => '฿' + fmt(n);
 const inputCls = 'bg-[#F8FAFC] border border-slate-200 rounded-2xl px-4 py-3 text-base outline-none focus:border-[#7B8CFA] w-full';
@@ -18,6 +20,21 @@ const IconChevron = ({ open }) => (
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
   </svg>
 );
+const IconCheck = () => (
+  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
+  </svg>
+);
+const IconX = () => (
+  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+  </svg>
+);
+const IconClock = () => (
+  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+  </svg>
+);
 
 const Modal = ({ children, onClose }) => createPortal(
   <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/40 px-0 sm:px-4"
@@ -30,12 +47,15 @@ const Modal = ({ children, onClose }) => createPortal(
   document.body
 );
 
-export default function PayrollPeriodDetail({ period, employees, onClose, onPaid }) {
+export default function PayrollPeriodDetail({ period, employees, onClose, onPaid, onDeleted }) {
   const [detail, setDetail]     = useState(null);
   const [loading, setLoading]   = useState(true);
   const [jobs, setJobs]         = useState([]);
   const [categories, setCategories] = useState([]);
-  const [paying, setPaying]     = useState(false);
+  const [payingId,     setPayingId]     = useState(null);
+  const [payMethodFor, setPayMethodFor] = useState(null);
+  const [deferringId,  setDeferringId]  = useState(null);
+  const [deleting,     setDeleting]     = useState(false);
   const [expanded, setExpanded] = useState({});
 
   // piece rate modal state
@@ -134,16 +154,42 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
     await loadDetail();
   };
 
-  // ── Pay period ──
-  const handlePay = async () => {
-    if (!confirm(`ยืนยันจ่ายงวด ${detail.startDate} — ${detail.endDate}?`)) return;
-    setPaying(true);
+  // ── Delete period ──
+  const handleDelete = async () => {
+    if (!confirm(`ลบงวด ${detail.startDate} — ${detail.endDate} ?\nข้อมูลทั้งหมดในงวดนี้จะหายถาวร`)) return;
+    setDeleting(true);
     try {
-      await api.payPayrollPeriod(period.id);
+      await api.deletePayrollPeriod(period.id);
+      onDeleted?.();
+    } catch (err) {
+      alert('ลบไม่สำเร็จ: ' + err.message);
+    }
+    setDeleting(false);
+  };
+
+  // ── Defer / un-defer employee ──
+  const handleDefer = async (item) => {
+    setDeferringId(item.employeeId);
+    try {
+      await api.toggleDeferPayrollItem(period.id, item.employeeId);
       await loadDetail();
       onPaid?.();
     } catch (err) { console.error(err); }
-    setPaying(false);
+    setDeferringId(null);
+  };
+
+  // ── Pay individual employee ──
+  const handlePayEmployee = async (method) => {
+    if (!payMethodFor) return;
+    const item = payMethodFor;
+    setPayMethodFor(null);
+    setPayingId(item.employeeId);
+    try {
+      await api.payPayrollPeriodItem(period.id, item.employeeId, method);
+      await loadDetail();
+      onPaid?.();
+    } catch (err) { console.error(err); }
+    setPayingId(null);
   };
 
   // ── Exports ──
@@ -288,7 +334,13 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
   }));
   const uncategorized = jobs.filter(j => !j.categoryId);
 
-  const isPaid = detail?.status === 'Paid';
+  const periodStatus  = detail?.status;
+  const deferredCount = detail?.items.filter(i => i.isDeferred).length ?? 0;
+  const statusBadge = {
+    Paid:    { label: <span className="flex items-center gap-1"><IconCheck />{deferredCount > 0 ? `จ่ายครบแล้ว (เลื่อน ${deferredCount} คน)` : 'จ่ายครบแล้ว'}</span>, cls: 'bg-emerald-100 text-emerald-700' },
+    Partial: { label: <span className="flex items-center gap-1"><IconClock />จ่ายบางส่วน</span>, cls: 'bg-amber-100 text-amber-700' },
+    Unpaid:  { label: 'ยังไม่จ่าย',                                                              cls: 'bg-slate-100 text-slate-500' },
+  }[periodStatus] || { label: periodStatus, cls: 'bg-slate-100 text-slate-500' };
 
   // ── Render ──
   if (loading) return (
@@ -309,14 +361,10 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
             <h3 className="text-xl font-bold text-[#222222]">{detail.startDate} — {detail.endDate}</h3>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            {isPaid
-              ? <span className="bg-emerald-100 text-emerald-700 text-sm font-bold px-4 py-1.5 rounded-full">✓ จ่ายแล้ว</span>
-              : <button onClick={handlePay} disabled={paying}
-                  className="bg-[#C6F45D] text-[#222222] text-sm font-bold px-4 py-1.5 rounded-full cursor-pointer disabled:opacity-50 active:scale-95 transition-transform">
-                  {paying ? 'กำลังจ่าย...' : 'ยืนยันจ่าย'}
-                </button>
-            }
-            <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-sm cursor-pointer px-2">✕ ปิด</button>
+            <span className={`text-sm font-bold px-4 py-1.5 rounded-full ${statusBadge.cls}`}>
+              {statusBadge.label}
+            </span>
+            <button onClick={onClose} className="text-slate-400 hover:text-slate-600 cursor-pointer p-1.5 rounded-xl hover:bg-slate-100 transition-colors"><IconX /></button>
           </div>
         </div>
 
@@ -327,6 +375,17 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
             <p className="text-2xl font-bold text-[#7B8CFA]">{fmtB(detail.grandTotal)}</p>
           </div>
           <div className="flex gap-2 flex-wrap">
+            {periodStatus === 'Unpaid' ? (
+              <button onClick={handleDelete} disabled={deleting}
+                className="bg-red-50 border border-red-200 text-red-600 text-xs font-bold px-3 py-2 rounded-xl cursor-pointer hover:bg-red-100 transition-colors flex items-center gap-1.5 disabled:opacity-40">
+                <IconTrash />{deleting ? 'กำลังลบ...' : 'ลบงวด'}
+              </button>
+            ) : (
+              <button disabled title="ไม่สามารถลบงวดที่จ่ายไปแล้วได้"
+                className="bg-slate-50 border border-slate-200 text-slate-300 text-xs font-bold px-3 py-2 rounded-xl flex items-center gap-1.5 cursor-not-allowed">
+                <IconTrash />ลบงวด
+              </button>
+            )}
             <button onClick={exportCSV}
               className="bg-[#F8FAFC] border border-slate-200 text-slate-600 text-xs font-bold px-3 py-2 rounded-xl cursor-pointer hover:bg-slate-100 transition-colors flex items-center gap-1.5">
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -355,18 +414,55 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
       {/* ── Employee cards ── */}
       <div className="flex flex-col gap-3">
         {detail.items.map(item => {
-          const isOpen = expanded[item.employeeId];
+          const isOpen      = expanded[item.employeeId];
+          const itemPaid    = item.paidStatus === 'Paid';
+          const isDeferred  = item.isDeferred && !itemPaid;
+          const isPaying    = payingId    === item.employeeId;
+          const isDeferring = deferringId === item.employeeId;
           return (
             <div key={item.employeeId}
-              className="bg-white rounded-3xl border border-slate-100 shadow-sm p-5 flex flex-col gap-3">
+              className={`bg-white rounded-3xl border shadow-sm p-5 flex flex-col gap-3
+                ${itemPaid ? 'border-emerald-200' : isDeferred ? 'border-indigo-200 opacity-70' : 'border-slate-100'}`}>
 
               {/* Employee header */}
               <div className="flex items-center justify-between gap-3 flex-wrap">
                 <div>
-                  <p className="font-bold text-[#222222]">{item.name}</p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="font-bold text-[#222222]">{item.name}</p>
+                    {itemPaid && (
+                      <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
+                        <IconCheck />จ่ายแล้ว{item.paymentMethod ? ` · ${item.paymentMethod}` : ''} {item.paidAt ? fmtDate(item.paidAt) : ''}
+                      </span>
+                    )}
+                    {isDeferred && (
+                      <span className="text-[10px] bg-indigo-100 text-indigo-600 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
+                        <IconClock />เลื่อนงวดหน้า
+                      </span>
+                    )}
+                  </div>
                   {item.department && <p className="text-xs text-slate-400 mt-0.5">{item.department}</p>}
                 </div>
-                <p className="text-xl font-bold text-[#7B8CFA]">{fmtB(item.netTotal)}</p>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="text-xl font-bold text-[#7B8CFA]">{fmtB(item.netTotal)}</p>
+                  {!itemPaid && !isDeferred && (
+                    <>
+                      <button onClick={() => handleDefer(item)} disabled={isDeferring}
+                        className="bg-slate-100 text-slate-500 text-xs font-bold px-3 py-1.5 rounded-full cursor-pointer disabled:opacity-50 active:scale-95 transition-transform whitespace-nowrap hover:bg-indigo-50 hover:text-indigo-600">
+                        {isDeferring ? '...' : 'เลื่อนงวดหน้า'}
+                      </button>
+                      <button onClick={() => setPayMethodFor(item)} disabled={isPaying}
+                        className="bg-[#C6F45D] text-[#222222] text-xs font-bold px-3 py-1.5 rounded-full cursor-pointer disabled:opacity-50 active:scale-95 transition-transform whitespace-nowrap">
+                        {isPaying ? '...' : 'จ่าย'}
+                      </button>
+                    </>
+                  )}
+                  {isDeferred && (
+                    <button onClick={() => handleDefer(item)} disabled={isDeferring}
+                      className="bg-slate-100 text-slate-400 text-xs font-bold px-3 py-1.5 rounded-full cursor-pointer disabled:opacity-50 active:scale-95 transition-transform whitespace-nowrap hover:bg-red-50 hover:text-red-400">
+                      {isDeferring ? '...' : 'ยกเลิกเลื่อน'}
+                    </button>
+                  )}
+                </div>
               </div>
 
               {/* Wage breakdown chips */}
@@ -423,7 +519,7 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
                         </div>
                         <div className="flex items-center gap-2.5 flex-shrink-0">
                           <p className="text-sm font-bold text-[#7B8CFA]">{fmtB(log.totalAmount)}</p>
-                          {!isPaid && (
+                          {!itemPaid && !isDeferred && (
                             <button onClick={() => handleDeletePieceLog(log.id)}
                               className="text-slate-300 hover:text-red-400 transition-colors cursor-pointer">
                               <IconTrash />
@@ -436,7 +532,7 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
                 )}
 
                 {/* Add piece rate button */}
-                {!isPaid && (
+                {!itemPaid && !isDeferred && (
                   <button onClick={() => { openModal(item); setExpanded(prev => ({ ...prev, [item.employeeId]: true })); }}
                     className="self-start bg-[#7B8CFA]/10 text-[#7B8CFA] text-sm font-bold px-4 py-2 rounded-2xl cursor-pointer hover:bg-[#7B8CFA]/20 transition-colors active:scale-95">
                     + เพิ่มงานเหมา
@@ -447,6 +543,43 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
           );
         })}
       </div>
+
+      {/* ── Payment method modal ── */}
+      {payMethodFor && (
+        <Modal onClose={() => setPayMethodFor(null)}>
+          <div>
+            <h2 className="text-xl font-bold text-[#222222]">เลือกวิธีชำระเงิน</h2>
+            <p className="text-sm text-slate-500 mt-1">
+              ค่าแรง <span className="font-semibold text-[#222222]">{payMethodFor.name}</span>
+              {' · '}<span className="font-bold text-[#7B8CFA]">{fmtB(payMethodFor.netTotal)}</span>
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-3 mt-2">
+            <button
+              onClick={() => handlePayEmployee('เงินสด')}
+              className="flex flex-col items-center gap-3 bg-[#F8FAFC] border-2 border-slate-200 hover:border-[#7B8CFA] hover:bg-[#7B8CFA]/5 rounded-2xl p-5 cursor-pointer transition-all active:scale-95 group">
+              <svg className="w-10 h-10 text-slate-400 group-hover:text-[#7B8CFA] transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5"
+                  d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
+              </svg>
+              <span className="font-bold text-slate-600 group-hover:text-[#7B8CFA] transition-colors">เงินสด</span>
+            </button>
+            <button
+              onClick={() => handlePayEmployee('เงินโอน')}
+              className="flex flex-col items-center gap-3 bg-[#F8FAFC] border-2 border-slate-200 hover:border-emerald-500 hover:bg-emerald-50 rounded-2xl p-5 cursor-pointer transition-all active:scale-95 group">
+              <svg className="w-10 h-10 text-slate-400 group-hover:text-emerald-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5"
+                  d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+              </svg>
+              <span className="font-bold text-slate-600 group-hover:text-emerald-500 transition-colors">เงินโอน</span>
+            </button>
+          </div>
+          <button onClick={() => setPayMethodFor(null)}
+            className="w-full bg-slate-100 text-slate-500 font-semibold py-3 rounded-2xl cursor-pointer hover:bg-slate-200 transition-colors">
+            ยกเลิก
+          </button>
+        </Modal>
+      )}
 
       {/* ── Piece rate modal ── */}
       {addingFor && (
@@ -552,7 +685,7 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
               {saving ? 'กำลังบันทึก...' : `บันทึก ${queue.length} รายการ`}
             </button>
           </div>
-          {saveOk && <p className="text-center text-emerald-600 font-medium text-sm">✓ บันทึกสำเร็จ</p>}
+          {saveOk && <p className="text-center text-emerald-600 font-medium text-sm flex items-center justify-center gap-1"><IconCheck />บันทึกสำเร็จ</p>}
         </Modal>
       )}
     </div>

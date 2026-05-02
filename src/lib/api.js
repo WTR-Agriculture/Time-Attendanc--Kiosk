@@ -137,6 +137,16 @@ export async function getEmployeePayroll(employeeId) {
 // ============================================================
 //  updateEmployee — แก้ไขข้อมูลพนักงาน
 // ============================================================
+export async function setEmployeeActive(employeeId, isActive) {
+  const res = await fetch(`${API_URL}/api/employees/${encodeURIComponent(employeeId)}/active`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ isActive }),
+  });
+  if (!res.ok) throw new Error(`API PUT error: ${res.status}`);
+  return res.json();
+}
+
 export async function updateEmployee(employeeId, { name, department, rate, rateType }) {
   const res = await fetch(`${API_URL}/api/employees/${encodeURIComponent(employeeId)}`, {
     method:  'PUT',
@@ -162,8 +172,32 @@ export async function getPayrollPeriodDetail(periodId) {
   return apiGet(`/api/payroll/periods/${periodId}`);
 }
 
+export async function deletePayrollPeriod(periodId) {
+  const res = await fetch(`${API_URL}/api/payroll/periods/${periodId}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`API DELETE error: ${res.status}`);
+  return res.json();
+}
+
 export async function payPayrollPeriod(periodId) {
   const res = await fetch(`${API_URL}/api/payroll/periods/${periodId}/pay`, { method: 'PUT' });
+  if (!res.ok) throw new Error(`API PUT error: ${res.status}`);
+  return res.json();
+}
+
+export async function toggleDeferPayrollItem(periodId, employeeId) {
+  const res = await fetch(`${API_URL}/api/payroll/periods/${periodId}/items/${encodeURIComponent(employeeId)}/defer`, {
+    method: 'PUT',
+  });
+  if (!res.ok) throw new Error(`API PUT error: ${res.status}`);
+  return res.json();
+}
+
+export async function payPayrollPeriodItem(periodId, employeeId, paymentMethod) {
+  const res = await fetch(`${API_URL}/api/payroll/periods/${periodId}/items/${encodeURIComponent(employeeId)}/pay`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ paymentMethod }),
+  });
   if (!res.ok) throw new Error(`API PUT error: ${res.status}`);
   return res.json();
 }

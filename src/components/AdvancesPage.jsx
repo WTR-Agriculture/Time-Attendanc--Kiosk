@@ -7,6 +7,12 @@ const formatMoney = (n) =>
   '฿' + Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const inputCls = 'bg-[#F8FAFC] border border-slate-200 rounded-2xl px-4 py-3 text-base outline-none focus:border-[#7B8CFA] w-full';
 
+const IconX = () => (
+  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+  </svg>
+);
+
 const Modal = ({ children, onClose }) => createPortal(
   <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/40 px-0 sm:px-4"
     onClick={onClose}>
@@ -34,6 +40,8 @@ export default function AdvancesPage() {
   const [histEmp, setHistEmp]       = useState(null);
   const [history, setHistory]       = useState([]);
   const [histLoading, setHistLoading] = useState(false);
+
+  const [search, setSearch] = useState('');
 
   useEffect(() => { loadData(); }, []);
 
@@ -76,7 +84,9 @@ export default function AdvancesPage() {
   };
 
   const empWithBalance = employees.filter(e => e.balance > 0);
-  const empAll         = employees;
+  const empAll = search.trim()
+    ? employees.filter(e => e.name.toLowerCase().includes(search.toLowerCase()) || e.employeeId.includes(search))
+    : employees;
 
   return (
     <div className="flex flex-col gap-6">
@@ -102,9 +112,26 @@ export default function AdvancesPage() {
         </div>
       )}
 
+      {/* Search */}
+      <div className="relative">
+        <svg className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-4.35-4.35M17 11A6 6 0 111 11a6 6 0 0116 0z" />
+        </svg>
+        <input value={search} onChange={e => setSearch(e.target.value)}
+          placeholder="ค้นหาชื่อพนักงาน..."
+          className="w-full bg-white border border-slate-200 rounded-2xl pl-10 pr-10 py-3 text-base outline-none focus:border-[#7B8CFA] transition-colors" />
+        {search && (
+          <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer p-1">
+            <IconX />
+          </button>
+        )}
+      </div>
+
       {/* Employee list */}
       {loading ? (
         <p className="text-center text-slate-400 text-sm py-10">กำลังโหลด...</p>
+      ) : empAll.length === 0 ? (
+        <p className="text-center text-slate-400 text-sm py-10">ไม่พบพนักงานที่ตรงกับ "{search}"</p>
       ) : (
         <div className="flex flex-col gap-3">
           {empAll.map(emp => (
@@ -188,7 +215,7 @@ export default function AdvancesPage() {
                 <p className="text-slate-400 text-sm">{histEmp.name}</p>
               </div>
               <button onClick={() => setHistEmp(null)}
-                className="bg-[#F2F2F2] p-2 rounded-full cursor-pointer text-slate-500 text-sm">✕</button>
+                className="bg-[#F2F2F2] p-2 rounded-full cursor-pointer text-slate-500 hover:bg-slate-200 transition-colors"><IconX /></button>
             </div>
             {histLoading ? (
               <p className="text-center text-slate-400 text-sm py-8">กำลังโหลด...</p>

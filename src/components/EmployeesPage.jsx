@@ -4,17 +4,22 @@ import * as api from '../lib/api';
 
 const DEPARTMENTS = ['Office', 'Production'];
 
+const IconX = () => (
+  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+  </svg>
+);
 const IconEdit = () => (
   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
       d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
   </svg>
 );
-const IconTrash = () => (
-  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
-      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-  </svg>
+const Toggle = ({ checked, onChange, loading }) => (
+  <button onClick={onChange} disabled={loading}
+    className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ${checked ? 'bg-emerald-400' : 'bg-slate-200'} ${loading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
+    <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${checked ? 'translate-x-5' : ''}`} />
+  </button>
 );
 const IconClock = () => (
   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -84,8 +89,8 @@ export default function EmployeesPage({ employees, onBack, onRefresh }) {
   const [editSaving, setEditSaving]     = useState(false);
   const [editError, setEditError]       = useState(null);
 
-  const [deleteEmp, setDeleteEmp] = useState(null);
-  const [deleting, setDeleting]   = useState(false);
+  const [togglingId, setTogglingId] = useState(null);
+  const [search, setSearch] = useState('');
 
   const [logsEmp, setLogsEmp]         = useState(null);
   const [logsData, setLogsData]       = useState([]);
@@ -128,10 +133,10 @@ export default function EmployeesPage({ employees, onBack, onRefresh }) {
     finally { setEditSaving(false); }
   };
 
-  const handleDelete = async () => {
-    setDeleting(true);
-    try { await api.deleteEmployee(deleteEmp.employeeId); setDeleteEmp(null); onRefresh(); }
-    catch {} finally { setDeleting(false); }
+  const handleToggleActive = async (emp) => {
+    setTogglingId(emp.employeeId);
+    try { await api.setEmployeeActive(emp.employeeId, !emp.isActive); onRefresh(); }
+    catch {} finally { setTogglingId(null); }
   };
 
   const openLogs = async (emp) => {
@@ -156,7 +161,7 @@ export default function EmployeesPage({ employees, onBack, onRefresh }) {
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-2xl font-bold text-[#222222]">พนักงาน</h2>
-          <p className="text-slate-400 text-sm mt-0.5">ทั้งหมด {employees.length} คน</p>
+          <p className="text-slate-400 text-sm mt-0.5">ใช้งาน {employees.filter(e => e.isActive !== false).length} / {employees.length} คน</p>
         </div>
         <button onClick={openAdd}
           className="bg-[#7B8CFA] text-white px-4 py-2.5 rounded-2xl text-sm font-bold flex items-center gap-1.5 cursor-pointer active:scale-95 transition-transform">
@@ -167,52 +172,89 @@ export default function EmployeesPage({ employees, onBack, onRefresh }) {
         </button>
       </div>
 
+      {/* Search */}
+      <div className="relative">
+        <svg className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-4.35-4.35M17 11A6 6 0 111 11a6 6 0 0116 0z" />
+        </svg>
+        <input
+          value={search} onChange={e => setSearch(e.target.value)}
+          placeholder="ค้นหาชื่อพนักงาน..."
+          className="w-full bg-white border border-slate-200 rounded-2xl pl-10 pr-4 py-3 text-base outline-none focus:border-[#7B8CFA] transition-colors"
+        />
+        {search && (
+          <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer p-1">
+            <IconX />
+          </button>
+        )}
+      </div>
+
       {/* Employee cards */}
-      {employees.length === 0 ? (
-        <div className="bg-white rounded-3xl border border-slate-100 py-16 text-center text-slate-400">
-          ยังไม่มีพนักงาน
-        </div>
-      ) : (
+      {(() => {
+        const filtered = search.trim()
+          ? employees.filter(e => e.name.toLowerCase().includes(search.toLowerCase()) || e.employeeId.includes(search))
+          : employees;
+        if (employees.length === 0) return (
+          <div className="bg-white rounded-3xl border border-slate-100 py-16 text-center text-slate-400">
+            ยังไม่มีพนักงาน
+          </div>
+        );
+        if (filtered.length === 0) return (
+          <div className="bg-white rounded-3xl border border-slate-100 py-12 text-center text-slate-400 text-sm">
+            ไม่พบพนักงานที่ตรงกับ "{search}"
+          </div>
+        );
+        return (
         <div className="flex flex-col gap-3">
-          {employees.map((emp, i) => (
-            <div key={emp.employeeId}
-              className="bg-white rounded-3xl border border-slate-100 shadow-sm px-5 py-4 flex items-center gap-4">
-              {/* Avatar */}
-              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-bold text-base flex-shrink-0 ${AVATAR_COLORS[i % AVATAR_COLORS.length]}`}>
-                {getInitials(emp.name)}
-              </div>
+          {filtered.map((emp, i) => {
+            const isActive = emp.isActive !== false;
+            return (
+              <div key={emp.employeeId}
+                className={`rounded-3xl border shadow-sm px-5 py-4 flex items-center gap-4 transition-opacity ${isActive ? 'bg-white border-slate-100' : 'bg-slate-50 border-slate-100 opacity-60'}`}>
+                {/* Avatar */}
+                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-bold text-base flex-shrink-0 ${isActive ? AVATAR_COLORS[i % AVATAR_COLORS.length] : 'bg-slate-200 text-slate-400'}`}>
+                  {getInitials(emp.name)}
+                </div>
 
-              {/* Info */}
-              <div className="flex-1 min-w-0">
-                <p className="font-bold text-[#222222] truncate">{emp.name}</p>
-                <p className="text-sm text-slate-400 mt-0.5">
-                  {emp.department || 'ไม่ระบุแผนก'} · {emp.rate.toLocaleString()} {emp.rateType === 'daily' ? 'บ./วัน' : 'บ./ชม.'}
-                </p>
-              </div>
+                {/* Info */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="font-bold text-[#222222] truncate">{emp.name}</p>
+                    {!isActive && <span className="text-xs font-medium text-slate-400 bg-slate-200 px-2 py-0.5 rounded-full flex-shrink-0">ไม่ใช้งาน</span>}
+                  </div>
+                  <p className="text-sm text-slate-400 mt-0.5">
+                    {emp.department || 'ไม่ระบุแผนก'} · {emp.rate.toLocaleString()} {emp.rateType === 'daily' ? 'บ./วัน' : 'บ./ชม.'}
+                  </p>
+                </div>
 
-              {/* Actions */}
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <button onClick={() => openLogs(emp)} title="ประวัติการมาทำงาน"
-                  className="w-9 h-9 rounded-xl bg-blue-50 text-blue-500 flex items-center justify-center cursor-pointer active:scale-95 transition-transform">
-                  <IconClock />
-                </button>
-                <button onClick={() => openPayHistory(emp)} title="ประวัติค่าแรง"
-                  className="w-9 h-9 rounded-xl bg-violet-50 text-violet-500 flex items-center justify-center cursor-pointer active:scale-95 transition-transform">
-                  <IconReceipt />
-                </button>
-                <button onClick={() => openEdit(emp)} title="แก้ไข"
-                  className="w-9 h-9 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center cursor-pointer active:scale-95 transition-transform">
-                  <IconEdit />
-                </button>
-                <button onClick={() => setDeleteEmp(emp)} title="ลบ"
-                  className="w-9 h-9 rounded-xl bg-red-50 text-red-500 flex items-center justify-center cursor-pointer active:scale-95 transition-transform">
-                  <IconTrash />
-                </button>
+                {/* Actions */}
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {isActive && <>
+                    <button onClick={() => openLogs(emp)} title="ประวัติการมาทำงาน"
+                      className="w-9 h-9 rounded-xl bg-blue-50 text-blue-500 flex items-center justify-center cursor-pointer active:scale-95 transition-transform">
+                      <IconClock />
+                    </button>
+                    <button onClick={() => openPayHistory(emp)} title="ประวัติค่าแรง"
+                      className="w-9 h-9 rounded-xl bg-violet-50 text-violet-500 flex items-center justify-center cursor-pointer active:scale-95 transition-transform">
+                      <IconReceipt />
+                    </button>
+                    <button onClick={() => openEdit(emp)} title="แก้ไข"
+                      className="w-9 h-9 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center cursor-pointer active:scale-95 transition-transform">
+                      <IconEdit />
+                    </button>
+                  </>}
+                  <Toggle
+                    checked={isActive}
+                    loading={togglingId === emp.employeeId}
+                    onChange={() => handleToggleActive(emp)}
+                  />
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
-      )}
+        );
+      })()}
 
       {/* ===================== Add Modal ===================== */}
       {showAdd && (
@@ -292,25 +334,6 @@ export default function EmployeesPage({ employees, onBack, onRefresh }) {
         </Modal>
       )}
 
-      {/* ===================== Delete Confirm ===================== */}
-      {deleteEmp && (
-        <Modal onClose={() => setDeleteEmp(null)}>
-          <div className="text-center flex flex-col gap-3">
-            <div className="w-14 h-14 bg-red-50 rounded-full flex items-center justify-center mx-auto text-red-500">
-              <IconTrash />
-            </div>
-            <h2 className="text-xl font-bold text-[#222222]">ลบพนักงาน?</h2>
-            <p className="text-slate-500">{deleteEmp.name} ({deleteEmp.employeeId})<br />ข้อมูลยังคงอยู่ใน DB</p>
-            <div className="flex gap-3 pt-1">
-              <button onClick={() => setDeleteEmp(null)} className="flex-1 bg-[#F2F2F2] text-slate-600 py-3 rounded-2xl font-medium cursor-pointer">ยกเลิก</button>
-              <button onClick={handleDelete} disabled={deleting}
-                className="flex-1 bg-red-500 text-white py-3 rounded-2xl font-bold cursor-pointer disabled:opacity-50">
-                {deleting ? 'กำลังลบ...' : 'ยืนยันลบ'}
-              </button>
-            </div>
-          </div>
-        </Modal>
-      )}
 
       {/* ===================== Attendance History ===================== */}
       {logsEmp && createPortal(
@@ -323,7 +346,7 @@ export default function EmployeesPage({ employees, onBack, onRefresh }) {
                 <h2 className="text-lg font-bold text-[#222222]">ประวัติการมาทำงาน</h2>
                 <p className="text-slate-400 text-sm">{logsEmp.name}</p>
               </div>
-              <button onClick={() => setLogsEmp(null)} className="bg-[#F2F2F2] p-2 rounded-full cursor-pointer text-slate-500 text-sm">✕</button>
+              <button onClick={() => setLogsEmp(null)} className="bg-[#F2F2F2] p-2 rounded-full cursor-pointer text-slate-500 hover:bg-slate-200 transition-colors"><IconX /></button>
             </div>
             {logsLoading ? (
               <div className="flex justify-center py-8 text-slate-400 text-sm">กำลังโหลด...</div>
@@ -368,7 +391,7 @@ export default function EmployeesPage({ employees, onBack, onRefresh }) {
                 <h2 className="text-lg font-bold text-[#222222]">ประวัติค่าแรง</h2>
                 <p className="text-slate-400 text-sm">{payEmp.name}</p>
               </div>
-              <button onClick={() => setPayEmp(null)} className="bg-[#F2F2F2] p-2 rounded-full cursor-pointer text-slate-500 text-sm">✕</button>
+              <button onClick={() => setPayEmp(null)} className="bg-[#F2F2F2] p-2 rounded-full cursor-pointer text-slate-500 hover:bg-slate-200 transition-colors"><IconX /></button>
             </div>
             {payLoading ? (
               <div className="flex justify-center py-8 text-slate-400 text-sm">กำลังโหลด...</div>
