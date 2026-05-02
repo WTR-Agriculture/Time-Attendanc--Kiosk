@@ -193,19 +193,32 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
   };
 
   // ── Exports ──
+  const periodStatusText = () => {
+    const dc = detail?.items.filter(i => i.isDeferred).length ?? 0;
+    if (detail?.status === 'Paid')    return dc > 0 ? `จ่ายครบแล้ว (เลื่อน ${dc} คน)` : 'จ่ายครบแล้ว';
+    if (detail?.status === 'Partial') return 'จ่ายบางส่วน';
+    return 'ยังไม่จ่าย';
+  };
+  const itemStatusText = (i) => {
+    if (i.paidStatus === 'Paid') return `จ่ายแล้ว${i.paymentMethod ? ` · ${i.paymentMethod}` : ''}${i.paidAt ? ` (${fmtDate(i.paidAt)})` : ''}`;
+    if (i.isDeferred) return 'เลื่อนงวดหน้า';
+    return 'ยังไม่จ่าย';
+  };
+
   const exportCSV = () => {
     if (!detail) return;
     const rows = [
       [`งวดค่าแรง: ${detail.startDate} — ${detail.endDate}`],
-      [`สถานะ: ${detail.status === 'Paid' ? 'จ่ายแล้ว' : 'ยังไม่จ่าย'}`],
+      [`สถานะ: ${periodStatusText()}`],
       [],
-      ['ชื่อ', 'วันทำงาน', 'ค่าแรงปกติ', 'หักมาสาย', 'OT (฿)', 'งานเหมา (฿)', 'หักเบิก (฿)', 'สุทธิ (฿)'],
+      ['ชื่อ', 'วันทำงาน', 'ค่าแรงปกติ', 'หักมาสาย', 'OT (฿)', 'งานเหมา (฿)', 'หักเบิก (฿)', 'สุทธิ (฿)', 'สถานะการจ่าย'],
       ...detail.items.map(i => [
-        i.name, i.workDays, i.baseAmount, -i.lateDeduction,
-        i.otAmount, i.pieceRateTotal, -i.advanceDeduction, i.netTotal,
+        i.name, i.workDays, i.baseAmount, i.lateDeduction,
+        i.otAmount, i.pieceRateTotal, i.advanceDeduction, i.netTotal,
+        itemStatusText(i),
       ]),
       [],
-      [`รวมสุทธิ`, '', '', '', '', '', '', detail.grandTotal],
+      [`รวมสุทธิ`, '', '', '', '', '', '', detail.grandTotal, ''],
     ];
     if (detail.items.some(i => i.pieceLogs?.length > 0)) {
       rows.push([], ['── รายการงานเหมา ──']);
@@ -235,18 +248,19 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
     // Sheet 1: สรุป
     const summaryAoa = [
       [`งวดค่าแรง: ${detail.startDate} — ${detail.endDate}`],
-      [`สถานะ: ${detail.status === 'Paid' ? 'จ่ายแล้ว' : 'ยังไม่จ่าย'}`],
+      [`สถานะ: ${periodStatusText()}`],
       [],
-      ['ชื่อ', 'วันทำงาน', 'ค่าแรงปกติ', 'หักมาสาย', 'OT', 'งานเหมา', 'หักเบิก', 'สุทธิ'],
+      ['ชื่อ', 'วันทำงาน', 'ค่าแรงปกติ', 'หักมาสาย', 'OT', 'งานเหมา', 'หักเบิก', 'สุทธิ', 'สถานะการจ่าย'],
       ...detail.items.map(i => [
         i.name, i.workDays, i.baseAmount, i.lateDeduction,
         i.otAmount, i.pieceRateTotal, i.advanceDeduction, i.netTotal,
+        itemStatusText(i),
       ]),
       [],
-      ['รวมสุทธิ', '', '', '', '', '', '', detail.grandTotal],
+      ['รวมสุทธิ', '', '', '', '', '', '', detail.grandTotal, ''],
     ];
     const ws1 = XLSX.utils.aoa_to_sheet(summaryAoa);
-    ws1['!cols'] = [{ wch: 20 }, { wch: 10 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 14 }];
+    ws1['!cols'] = [{ wch: 20 }, { wch: 10 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 28 }];
     XLSX.utils.book_append_sheet(wb, ws1, 'สรุปค่าแรง');
 
     // Sheet 2: งานเหมา (ถ้ามี)
@@ -275,24 +289,32 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
 
   const handlePrint = () => {
     if (!detail) return;
-    const rows = detail.items.map(item => `
+    const rows = detail.items.map(item => {
+      const st = item.paidStatus === 'Paid'
+        ? `<span class="paid">จ่ายแล้ว${item.paymentMethod ? ` · ${item.paymentMethod}` : ''}</span>`
+        : item.isDeferred
+          ? `<span class="deferred">เลื่อนงวดหน้า</span>`
+          : `<span class="unpaid">ยังไม่จ่าย</span>`;
+      return `
       <tr>
         <td>${item.name}</td>
-        <td style="text-align:center">${item.workDays}</td>
-        <td style="text-align:right">${fmt(item.baseAmount)}</td>
-        <td style="text-align:right;color:#ef4444">${item.lateDeduction > 0 ? `-${fmt(item.lateDeduction)}` : '-'}</td>
-        <td style="text-align:right;color:#10b981">${item.otAmount > 0 ? `+${fmt(item.otAmount)}` : '-'}</td>
-        <td style="text-align:right;color:#6366f1">${item.pieceRateTotal > 0 ? `+${fmt(item.pieceRateTotal)}` : '-'}</td>
-        <td style="text-align:right;color:#f59e0b">${item.advanceDeduction > 0 ? `-${fmt(item.advanceDeduction)}` : '-'}</td>
-        <td style="text-align:right;font-weight:bold">${fmt(item.netTotal)}</td>
+        <td class="ctr">${item.workDays}</td>
+        <td class="num">${fmt(item.baseAmount)}</td>
+        <td class="num" style="color:#ef4444">${item.lateDeduction > 0 ? fmt(item.lateDeduction) : '-'}</td>
+        <td class="num" style="color:#10b981">${item.otAmount > 0 ? fmt(item.otAmount) : '-'}</td>
+        <td class="num" style="color:#6366f1">${item.pieceRateTotal > 0 ? fmt(item.pieceRateTotal) : '-'}</td>
+        <td class="num" style="color:#f59e0b">${item.advanceDeduction > 0 ? fmt(item.advanceDeduction) : '-'}</td>
+        <td class="num" style="font-weight:bold">${fmt(item.netTotal)}</td>
+        <td style="font-size:11px">${st}</td>
       </tr>
       ${item.pieceLogs?.length > 0 ? `
-        <tr><td colspan="8" style="padding:4px 8px 0">
-          <small style="color:#6b7280">งานเหมา: ${item.pieceLogs.map(l =>
+        <tr><td colspan="9" style="padding:2px 10px 6px;color:#6b7280;font-size:11px">
+          งานเหมา: ${item.pieceLogs.map(l =>
             `${l.jobName} ×${l.quantity}${l.unitLength > 0 ? ` (${l.unitLength}ศอก)` : ''} = ฿${fmt(l.totalAmount)}`
-          ).join(' / ')}</small>
+          ).join(' / ')}
         </td></tr>` : ''}
-    `).join('');
+    `;
+    }).join('');
 
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
       <title>งวดค่าแรง ${detail.startDate} — ${detail.endDate}</title>
@@ -300,23 +322,58 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
         body { font-family: 'Sarabun', sans-serif; font-size: 13px; color: #111; margin: 20px; }
         h2 { font-size: 18px; margin-bottom: 4px; }
         p { margin: 2px 0 12px; color: #555; }
-        table { width: 100%; border-collapse: collapse; }
-        th { background: #f8fafc; padding: 8px 10px; text-align: left; font-weight: bold; border-bottom: 2px solid #e2e8f0; }
-        td { padding: 7px 10px; border-bottom: 1px solid #f1f5f9; }
-        tfoot td { font-weight: bold; border-top: 2px solid #e2e8f0; padding-top: 10px; }
+        .toolbar { display: flex; gap: 10px; margin-bottom: 16px; }
+        .btn { padding: 10px 20px; border-radius: 12px; border: none; font-size: 14px; font-family: inherit; cursor: pointer; font-weight: bold; }
+        .btn-back  { background: #f1f5f9; color: #475569; }
+        .btn-print { background: #7B8CFA; color: #fff; }
+        @media print { .toolbar { display: none; } }
+        table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        th, td { padding: 7px 10px; border-bottom: 1px solid #f1f5f9; overflow: hidden; }
+        thead tr { background: #f8fafc; border-bottom: 2px solid #e2e8f0; }
+        th { font-weight: bold; }
+        tfoot td { font-weight: bold; border-top: 2px solid #e2e8f0; border-bottom: none; }
+        .num { text-align: right; }
+        .ctr { text-align: center; }
+        .paid { color: #059669; } .deferred { color: #6366f1; } .unpaid { color: #94a3b8; }
+        col.c-name  { width: 16%; }
+        col.c-days  { width: 9%; }
+        col.c-wage  { width: 11%; }
+        col.c-late  { width: 10%; }
+        col.c-ot    { width: 9%; }
+        col.c-piece { width: 11%; }
+        col.c-adv   { width: 9%; }
+        col.c-net   { width: 11%; }
+        col.c-stat  { width: 14%; }
         @media print { body { margin: 10px; } }
       </style></head><body>
+      <div class="toolbar">
+        <button class="btn btn-back" onclick="window.close()">← ปิดหน้านี้</button>
+        <button class="btn btn-print" onclick="window.print()">พิมพ์ / บันทึก PDF</button>
+      </div>
       <h2>งวดค่าแรง: ${detail.startDate} — ${detail.endDate}</h2>
-      <p>สถานะ: ${detail.status === 'Paid' ? '✓ จ่ายแล้ว' : 'ยังไม่จ่าย'}</p>
+      <p>สถานะ: ${periodStatusText()}</p>
       <table>
+        <colgroup>
+          <col class="c-name"/><col class="c-days"/><col class="c-wage"/>
+          <col class="c-late"/><col class="c-ot"/><col class="c-piece"/>
+          <col class="c-adv"/><col class="c-net"/><col class="c-stat"/>
+        </colgroup>
         <thead><tr>
-          <th>ชื่อ</th><th>วันทำงาน</th><th>ค่าแรง</th>
-          <th>หักมาสาย</th><th>OT</th><th>งานเหมา</th><th>หักเบิก</th><th>สุทธิ (฿)</th>
+          <th>ชื่อ</th>
+          <th class="ctr">วันทำงาน</th>
+          <th class="num">ค่าแรง (฿)</th>
+          <th class="num">หักมาสาย (฿)</th>
+          <th class="num">OT (฿)</th>
+          <th class="num">งานเหมา (฿)</th>
+          <th class="num">หักเบิก (฿)</th>
+          <th class="num">สุทธิ (฿)</th>
+          <th>สถานะ</th>
         </tr></thead>
         <tbody>${rows}</tbody>
         <tfoot><tr>
-          <td colspan="7" style="text-align:right">รวมสุทธิทั้งหมด</td>
-          <td style="text-align:right">฿${fmt(detail.grandTotal)}</td>
+          <td colspan="7" class="num">รวมสุทธิทั้งหมด</td>
+          <td class="num">฿${fmt(detail.grandTotal)}</td>
+          <td></td>
         </tr></tfoot>
       </table>
     </body></html>`;
@@ -324,7 +381,6 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
     const w = window.open('', '_blank');
     w.document.write(html);
     w.document.close();
-    setTimeout(() => { w.focus(); w.print(); }, 400);
   };
 
   // ── jobs grouped by category ──
