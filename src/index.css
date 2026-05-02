@@ -12,6 +12,11 @@ body {
   font-family: 'Kanit', sans-serif;
   touch-action: manipulation;
   overflow: hidden;
+  height: 100%;
+}
+
+html {
+  height: 100%;
 }
 
 @keyframes scan {
