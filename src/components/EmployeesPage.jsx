@@ -44,6 +44,28 @@ const AVATAR_COLORS = [
   'bg-[#6366F1] text-white', 'bg-[#EC4899] text-white', 'bg-[#14B8A6] text-white',
 ];
 
+// ── defined outside to avoid remount on every keystroke ──
+const Modal = ({ children, onClose }) => createPortal(
+  <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/40 px-0 sm:px-4"
+    onClick={onClose}>
+    <div className="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl shadow-xl p-6 flex flex-col gap-4 max-h-[90vh] overflow-y-auto"
+      onClick={e => e.stopPropagation()}>
+      {children}
+    </div>
+  </div>,
+  document.body
+);
+
+const inputCls = "w-full border border-slate-200 rounded-2xl px-4 py-3 text-base outline-none focus:border-[#7B8CFA] bg-white";
+const readonlyCls = "w-full border border-slate-200 rounded-2xl px-4 py-3 text-base bg-[#F8FAFC] text-slate-400 cursor-default";
+
+const FieldRow = ({ label, children }) => (
+  <div className="flex flex-col gap-1.5">
+    <label className="text-sm font-medium text-slate-500">{label}</label>
+    {children}
+  </div>
+);
+
 export default function EmployeesPage({ employees, onBack, onRefresh }) {
   const [showAdd, setShowAdd]         = useState(false);
   const [newId, setNewId]             = useState('');
@@ -123,32 +145,6 @@ export default function EmployeesPage({ employees, onBack, onRefresh }) {
     try { const r = await api.getEmployeePayroll(emp.employeeId); setPayData(r.history || []); }
     catch {} finally { setPayLoading(false); }
   };
-
-  // ============================================================
-  //  Reusable Modal wrapper
-  // ============================================================
-  const Modal = ({ children, onClose }) => createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/40 px-0 sm:px-4"
-      onClick={onClose}>
-      <div className="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl shadow-xl p-6 flex flex-col gap-4 max-h-[90vh] overflow-y-auto"
-        onClick={e => e.stopPropagation()}>
-        {children}
-      </div>
-    </div>,
-    document.body
-  );
-
-  // ============================================================
-  //  Form fields reused in Add/Edit
-  // ============================================================
-  const FieldRow = ({ label, children }) => (
-    <div className="flex flex-col gap-1.5">
-      <label className="text-sm font-medium text-slate-500">{label}</label>
-      {children}
-    </div>
-  );
-  const inputCls = "w-full border border-slate-200 rounded-2xl px-4 py-3 text-base outline-none focus:border-[#7B8CFA] bg-white";
-  const readonlyCls = "w-full border border-slate-200 rounded-2xl px-4 py-3 text-base bg-[#F8FAFC] text-slate-400 cursor-default";
 
   // ============================================================
   //  Render
