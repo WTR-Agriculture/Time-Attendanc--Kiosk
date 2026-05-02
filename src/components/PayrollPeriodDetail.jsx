@@ -124,10 +124,22 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
   };
 
   const handleSaveQueue = async () => {
-    if (!addingFor || queue.length === 0) return;
+    if (!addingFor) return;
+    let finalQueue = [...queue];
+    if (fJobId && fQty) {
+      const job = selectedJob;
+      const { unitPrice: up, totalAmount: ta } = calcPrice(job, fQty, fLen);
+      finalQueue.push({
+        id: Date.now(), jobId: job.id, jobName: job.jobName, unit: job.unit,
+        quantity: parseFloat(fQty),
+        unitLength: job.hasLength ? (parseFloat(fLen) || 0) : 0,
+        unitPrice: up, totalAmount: ta, note: fNote,
+      });
+    }
+    if (finalQueue.length === 0) return;
     setSaving(true);
     try {
-      await Promise.all(queue.map(item =>
+      await Promise.all(finalQueue.map(item =>
         api.addPeriodPieceRate(period.id, {
           employeeId:   addingFor.employeeId,
           employeeName: addingFor.name,
@@ -322,8 +334,8 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
         body { font-family: 'Sarabun', sans-serif; font-size: 13px; color: #111; margin: 20px; }
         h2 { font-size: 18px; margin-bottom: 4px; }
         p { margin: 2px 0 12px; color: #555; }
-        .toolbar { display: flex; gap: 10px; margin-bottom: 16px; }
-        .btn { padding: 10px 20px; border-radius: 12px; border: none; font-size: 14px; font-family: inherit; cursor: pointer; font-weight: bold; }
+        .toolbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 16px; }
+        .btn { padding: 14px 28px; border-radius: 14px; border: none; font-size: 16px; font-family: inherit; cursor: pointer; font-weight: bold; }
         .btn-back  { background: #f1f5f9; color: #475569; }
         .btn-print { background: #7B8CFA; color: #fff; }
         @media print { .toolbar { display: none; } }
@@ -735,11 +747,17 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
           <div className="flex gap-3 pt-1">
             <button onClick={closeModal}
               className="flex-1 bg-slate-100 text-slate-600 font-bold py-3 rounded-2xl cursor-pointer">ยกเลิก</button>
-            <button onClick={handleSaveQueue}
-              disabled={queue.length === 0 || saving}
-              className="flex-1 bg-[#7B8CFA] disabled:opacity-40 text-white font-bold py-3 rounded-2xl cursor-pointer">
-              {saving ? 'กำลังบันทึก...' : `บันทึก ${queue.length} รายการ`}
-            </button>
+            {(() => {
+              const pendingInForm = fJobId && fQty;
+              const total = queue.length + (pendingInForm ? 1 : 0);
+              return (
+                <button onClick={handleSaveQueue}
+                  disabled={total === 0 || saving}
+                  className="flex-1 bg-[#7B8CFA] disabled:opacity-40 text-white font-bold py-3 rounded-2xl cursor-pointer">
+                  {saving ? 'กำลังบันทึก...' : `บันทึก ${total} รายการ`}
+                </button>
+              );
+            })()}
           </div>
           {saveOk && <p className="text-center text-emerald-600 font-medium text-sm flex items-center justify-center gap-1"><IconCheck />บันทึกสำเร็จ</p>}
         </Modal>

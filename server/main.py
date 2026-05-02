@@ -637,6 +637,63 @@ def create_payroll_period(body: CreatePayrollPeriodBody):
 # ============================================================
 #  GET /api/payroll/periods — ดูประวัติงวดทั้งหมด
 # ============================================================
+#  GET /api/payroll/summary — ยอดรวมค่าแรงที่จ่ายแล้ว
+#  query: year=YYYY, month=MM (optional)
+# ============================================================
+@app.get("/api/payroll/summary")
+def get_payroll_summary(year: Optional[int] = None, month: Optional[int] = None):
+    conn = get_db()
+    cursor = conn.cursor()
+    total_paid = period_count = emp_count = 0
+    cash_total = transfer_total = 0.0
+    try:
+        conditions = ["i.PaidStatus = 'Paid'"]
+        params = []
+        if year:
+            conditions.append("YEAR(p.StartDate) = ?")
+            params.append(year)
+        if month:
+            conditions.append("MONTH(p.StartDate) = ?")
+            params.append(month)
+        where = " AND ".join(conditions)
+        cursor.execute(f"""
+            SELECT
+                ISNULL(SUM(i.NetTotal), 0),
+                COUNT(DISTINCT p.Id),
+                COUNT(*)
+            FROM PayrollPeriodItems i
+            JOIN PayrollPeriods p ON i.PeriodId = p.Id
+            WHERE {where}
+        """, *params)
+        row = cursor.fetchone()
+        total_paid   = float(row[0])
+        period_count = int(row[1])
+        emp_count    = int(row[2])
+        try:
+            cursor.execute(f"""
+                SELECT
+                    ISNULL(SUM(CASE WHEN i.PaymentMethod = 'เงินสด' THEN i.NetTotal ELSE 0 END), 0),
+                    ISNULL(SUM(CASE WHEN i.PaymentMethod = 'โอน'    THEN i.NetTotal ELSE 0 END), 0)
+                FROM PayrollPeriodItems i
+                JOIN PayrollPeriods p ON i.PeriodId = p.Id
+                WHERE {where}
+            """, *params)
+            pm_row = cursor.fetchone()
+            cash_total     = float(pm_row[0])
+            transfer_total = float(pm_row[1])
+        except Exception:
+            pass
+    finally:
+        conn.close()
+    return {
+        "totalPaid":     total_paid,
+        "cashTotal":     cash_total,
+        "transferTotal": transfer_total,
+        "periodCount":   period_count,
+        "employeeCount": emp_count,
+    }
+
+# ============================================================
 @app.get("/api/payroll/periods")
 def get_payroll_periods():
     conn = get_db()

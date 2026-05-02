@@ -327,6 +327,10 @@ export default function App() {
   const [payPeriodError,   setPayPeriodError]   = useState(null);
   const [payingId,         setPayingId]         = useState(null);
   const [selectedPeriod,   setSelectedPeriod]   = useState(null);
+  const [summaryYear,      setSummaryYear]      = useState(String(new Date().getFullYear()));
+  const [summaryMonth,     setSummaryMonth]     = useState(String(new Date().getMonth() + 1));
+  const [summaryData,      setSummaryData]      = useState(null);
+  const [summaryLoading,   setSummaryLoading]   = useState(false);
   const [mobileNavOpen,    setMobileNavOpen]    = useState(false);
   const [periodDetail,     setPeriodDetail]     = useState(null); // unused, kept for compat
   const [periodDetailLoading, setPeriodDetailLoading] = useState(false); // unused
@@ -367,9 +371,13 @@ export default function App() {
   useEffect(() => {
     if (!isAdmin) return;
     if (activeTab === 'ATTENDANCE') loadAttendanceDay(attDate);
-    if (activeTab === 'PAYROLL')    loadPayrollPeriods();
+    if (activeTab === 'PAYROLL')    { loadPayrollPeriods(); loadPayrollSummary(summaryYear, summaryMonth); }
     if (activeTab === 'DASHBOARD')  loadDashboard();
   }, [activeTab, isAdmin]);
+
+  useEffect(() => {
+    if (isAdmin && activeTab === 'PAYROLL') loadPayrollSummary(summaryYear, summaryMonth);
+  }, [summaryYear, summaryMonth]);
 
   async function loadDashboard() {
     setDashLoading(true);
@@ -412,6 +420,21 @@ export default function App() {
       setAdminError('โหลดข้อมูลไม่สำเร็จ');
     } finally {
       setAdminLoading(false);
+    }
+  }
+
+  async function loadPayrollSummary(year, month) {
+    setSummaryLoading(true);
+    try {
+      const params = {};
+      if (year)  params.year  = year;
+      if (month) params.month = month;
+      const r = await api.getPayrollSummary(params);
+      setSummaryData(r);
+    } catch {
+      setSummaryData(null);
+    } finally {
+      setSummaryLoading(false);
     }
   }
 
@@ -1146,6 +1169,46 @@ export default function App() {
               </button>
             </div>
             {payPeriodError && <p className="text-red-500 text-sm">{payPeriodError}</p>}
+          </div>
+
+          {/* Wage summary card */}
+          <div className="bg-white rounded-2xl border border-slate-100 p-5 flex flex-col gap-4">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <p className="font-semibold text-slate-600">ยอดค่าแรงที่จ่ายแล้ว</p>
+              <div className="flex items-center gap-2">
+                <select value={summaryYear} onChange={e => setSummaryYear(e.target.value)}
+                  className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm outline-none focus:border-[#7B8CFA] bg-white">
+                  {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map(y => (
+                    <option key={y} value={String(y)}>{y}</option>
+                  ))}
+                </select>
+                <select value={summaryMonth} onChange={e => setSummaryMonth(e.target.value)}
+                  className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm outline-none focus:border-[#7B8CFA] bg-white">
+                  <option value="">ทั้งปี</option>
+                  {['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'].map((m, i) => (
+                    <option key={i+1} value={String(i+1)}>{m}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            {summaryLoading ? (
+              <div className="flex justify-center py-4"><div className="w-5 h-5 border-2 border-slate-200 border-t-[#7B8CFA] rounded-full animate-spin" /></div>
+            ) : summaryData ? (
+              <div className="flex flex-col gap-3">
+                <div className="flex items-end gap-2">
+                  <span className="text-3xl font-bold text-[#7B8CFA]">{formatMoney(summaryData.totalPaid)}</span>
+                  <span className="text-slate-400 text-sm pb-1">{summaryData.periodCount} งวด · {summaryData.employeeCount} รายการ</span>
+                </div>
+                {(summaryData.cashTotal > 0 || summaryData.transferTotal > 0) && (
+                  <div className="flex gap-4 text-sm">
+                    <span className="text-slate-500">เงินสด <span className="font-semibold text-slate-700">{formatMoney(summaryData.cashTotal)}</span></span>
+                    <span className="text-slate-500">โอน <span className="font-semibold text-slate-700">{formatMoney(summaryData.transferTotal)}</span></span>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-slate-400 text-sm">ไม่มีข้อมูล</p>
+            )}
           </div>
 
           {/* Period list */}

@@ -160,6 +160,10 @@ export async function updateEmployee(employeeId, { name, department, rate, rateT
 // ============================================================
 //  Payroll Periods
 // ============================================================
+export async function getPayrollSummary(params = {}) {
+  return apiGet('/api/payroll/summary', params);
+}
+
 export async function createPayrollPeriod({ startDate, endDate }) {
   return apiPost('/api/payroll/periods', { startDate, endDate });
 }
