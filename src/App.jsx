@@ -1240,10 +1240,10 @@ export default function App() {
                   <div className="flex items-center gap-3">
                     <span className="text-lg font-bold text-[#7B8CFA]">{formatMoney(p.grandTotal)}</span>
                     {p.status === 'Paid'
-                      ? <span className="bg-green-100 text-green-600 text-xs font-bold px-3 py-1 rounded-full">จ่ายแล้ว</span>
+                      ? <span className="bg-emerald-100 text-emerald-700 text-xs font-bold px-3 py-1 rounded-full">จ่ายแล้ว</span>
                       : p.status === 'Partial'
                         ? <span className="bg-amber-100 text-amber-700 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1"><IconClock />จ่ายบางส่วน</span>
-                        : <span className="bg-amber-100 text-amber-700 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1">ยังไม่จ่าย <IconChevronRight /></span>
+                        : <span className="bg-red-100 text-red-600 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1">ยังไม่จ่าย <IconChevronRight /></span>
                     }
                   </div>
                 </button>

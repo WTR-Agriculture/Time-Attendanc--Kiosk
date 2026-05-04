@@ -636,6 +636,7 @@ def create_payroll_period(body: CreatePayrollPeriodBody):
             item["workDays"], item["baseAmount"], item["lateDeduction"],
             item["otHours"], item["otAmount"], item["netTotal"])
 
+    recalc_period_status(cursor, period_id)
     conn.commit()
     conn.close()
     return {"success": True, "periodId": int(period_id), "grandTotal": round(grand_total, 2), "items": items}
@@ -727,6 +728,7 @@ def get_payroll_periods():
             FROM PayrollPeriodItems
             WHERE ISNULL(PaidStatus, 'Unpaid') != 'Paid'
               AND ISNULL(IsDeferred, 0) = 0
+              AND (NetTotal > 0 OR PieceRateTotal > 0 OR AdvanceDeduction > 0)
             GROUP BY PeriodId
         """)
         unpaid_map = {r[0]: r[1] for r in cursor.fetchall()}
@@ -816,7 +818,9 @@ def recalc_period_status(cursor, period_id):
     cursor.execute("""
         SELECT
             SUM(CASE WHEN PaidStatus='Paid' THEN 1 ELSE 0 END),
-            SUM(CASE WHEN PaidStatus='Unpaid' AND ISNULL(IsDeferred,0)=0 THEN 1 ELSE 0 END)
+            SUM(CASE WHEN PaidStatus='Unpaid' AND ISNULL(IsDeferred,0)=0
+                      AND (NetTotal > 0 OR PieceRateTotal > 0 OR AdvanceDeduction > 0)
+                     THEN 1 ELSE 0 END)
         FROM PayrollPeriodItems WHERE PeriodId=?
     """, period_id)
     row = cursor.fetchone()
