@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import * as XLSX from 'xlsx';
 import * as api from '../lib/api';
+import ConfirmDialog from './ConfirmDialog';
 
 const fmtDate = (s) => s ? s.slice(0, 10).split('-').reverse().join('/') : '';
 
@@ -57,6 +58,7 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
   const [deferringId,  setDeferringId]  = useState(null);
   const [deleting,     setDeleting]     = useState(false);
   const [expanded, setExpanded] = useState({});
+  const [dialog, setDialog] = useState(null);
 
   // piece rate modal state
   const [addingFor, setAddingFor] = useState(null);
@@ -160,23 +162,39 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
     setSaving(false);
   };
 
-  const handleDeletePieceLog = async (logId) => {
-    if (!confirm('ลบรายการนี้?')) return;
-    await api.deletePieceRateLog(logId);
-    await loadDetail();
+  const handleDeletePieceLog = (logId) => {
+    setDialog({
+      title: 'ลบรายการงานเหมา',
+      message: 'ยืนยันลบรายการนี้?',
+      confirmLabel: 'ลบ',
+      danger: true,
+      onConfirm: async () => {
+        setDialog(null);
+        await api.deletePieceRateLog(logId);
+        await loadDetail();
+      },
+    });
   };
 
   // ── Delete period ──
-  const handleDelete = async () => {
-    if (!confirm(`ลบงวด ${fmtDate(detail.startDate)} — ${fmtDate(detail.endDate)} ?\nข้อมูลทั้งหมดในงวดนี้จะหายถาวร`)) return;
-    setDeleting(true);
-    try {
-      await api.deletePayrollPeriod(period.id);
-      onDeleted?.();
-    } catch (err) {
-      alert('ลบไม่สำเร็จ: ' + err.message);
-    }
-    setDeleting(false);
+  const handleDelete = () => {
+    setDialog({
+      title: 'ลบงวดค่าแรง',
+      message: `${fmtDate(detail.startDate)} — ${fmtDate(detail.endDate)}\nข้อมูลทั้งหมดในงวดนี้จะหายถาวร`,
+      confirmLabel: 'ลบงวด',
+      danger: true,
+      onConfirm: async () => {
+        setDialog(null);
+        setDeleting(true);
+        try {
+          await api.deletePayrollPeriod(period.id);
+          onDeleted?.();
+        } catch (err) {
+          alert('ลบไม่สำเร็จ: ' + err.message);
+        }
+        setDeleting(false);
+      },
+    });
   };
 
   // ── Defer / un-defer employee ──
@@ -761,6 +779,17 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
           </div>
           {saveOk && <p className="text-center text-emerald-600 font-medium text-sm flex items-center justify-center gap-1"><IconCheck />บันทึกสำเร็จ</p>}
         </Modal>
+      )}
+
+      {dialog && (
+        <ConfirmDialog
+          title={dialog.title}
+          message={dialog.message}
+          confirmLabel={dialog.confirmLabel}
+          danger={dialog.danger}
+          onConfirm={dialog.onConfirm}
+          onCancel={() => setDialog(null)}
+        />
       )}
     </div>
   );

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import * as api from '../lib/api';
 import DateInput from './DateInput';
+import ConfirmDialog from './ConfirmDialog';
 
 const today = () => new Date().toLocaleDateString('en-CA');
 const formatMoney = (n) =>
@@ -69,6 +70,7 @@ export default function PieceRatePage({ employees }) {
   // job form modal
   const [showJobForm, setShowJobForm] = useState(false);
   const [editJob, setEditJob]         = useState(null);
+  const [dialog, setDialog]           = useState(null);
   const [jName,  setJName]  = useState('');
   const [jUnit,  setJUnit]  = useState('');
   const [jPrice, setJPrice] = useState('');
@@ -156,10 +158,18 @@ export default function PieceRatePage({ employees }) {
     setSaving(false);
   };
 
-  const handleDeleteLog = async (id) => {
-    if (!confirm('ลบรายการนี้?')) return;
-    await api.deletePieceRateLog(id);
-    loadLogs(pageDate);
+  const handleDeleteLog = (id) => {
+    setDialog({
+      title: 'ลบรายการงานเหมา',
+      message: 'ยืนยันลบรายการนี้?',
+      confirmLabel: 'ลบ',
+      danger: true,
+      onConfirm: async () => {
+        setDialog(null);
+        await api.deletePieceRateLog(id);
+        loadLogs(pageDate);
+      },
+    });
   };
 
   // ── Category modal ──
@@ -185,10 +195,18 @@ export default function PieceRatePage({ employees }) {
     } catch {}
     setCSaving(false);
   };
-  const handleDeleteCat = async (id) => {
-    if (!confirm('ลบหมวดหมู่นี้?')) return;
-    await api.deletePieceRateCategory(id);
-    loadCategories();
+  const handleDeleteCat = (id) => {
+    setDialog({
+      title: 'ลบหมวดหมู่',
+      message: 'ยืนยันลบหมวดหมู่นี้?\nรายการงานในหมวดนี้จะไม่ถูกลบ',
+      confirmLabel: 'ลบ',
+      danger: true,
+      onConfirm: async () => {
+        setDialog(null);
+        await api.deletePieceRateCategory(id);
+        loadCategories();
+      },
+    });
   };
 
   // ── Job modal ──
@@ -213,10 +231,18 @@ export default function PieceRatePage({ employees }) {
     } catch {}
     setJSaving(false);
   };
-  const handleDeleteJob = async (id) => {
-    if (!confirm('ลบรายการงานนี้?')) return;
-    await api.deletePieceRateJob(id);
-    loadJobs();
+  const handleDeleteJob = (id) => {
+    setDialog({
+      title: 'ลบรายการงาน',
+      message: 'ยืนยันลบรายการงานนี้?',
+      confirmLabel: 'ลบ',
+      danger: true,
+      onConfirm: async () => {
+        setDialog(null);
+        await api.deletePieceRateJob(id);
+        loadJobs();
+      },
+    });
   };
 
   // group jobs by category for display
@@ -590,6 +616,17 @@ export default function PieceRatePage({ employees }) {
             </button>
           </div>
         </Modal>
+      )}
+
+      {dialog && (
+        <ConfirmDialog
+          title={dialog.title}
+          message={dialog.message}
+          confirmLabel={dialog.confirmLabel}
+          danger={dialog.danger}
+          onConfirm={dialog.onConfirm}
+          onCancel={() => setDialog(null)}
+        />
       )}
     </div>
   );
