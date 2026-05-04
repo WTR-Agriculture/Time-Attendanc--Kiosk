@@ -793,9 +793,9 @@ export default function App() {
     return diff >= 16 ? diff - 15 : 0;
   };
 
-  // If within grace period (lateMins=0), use scheduled start so pay is not reduced
-  const calcEffectiveInTime = (inTime, lateMins) => {
-    if (!inTime || lateMins > 0) return inTime;
+  // Always use scheduled start for pay calculation (handles grace period + late deduction)
+  const calcScheduledStart = (inTime) => {
+    if (!inTime) return inTime;
     const toMins = t => t.split(':').reduce((h, m, i) => i === 0 ? h + Number(m) * 60 : h + Number(m), 0);
     return toMins(inTime) >= 12 * 60 ? '13:00' : '08:00';
   };
@@ -920,15 +920,14 @@ export default function App() {
         <div className="flex flex-col gap-3">
           {filteredAtt.map((emp) => {
             const s          = attCardState[emp.employeeId] || {};
-            const lateMins        = calcLateMins(s.inTime);
-            const lateDeduct      = lateMins > 0 ? lateMins * (emp.rate / WORK_MINS) : 0;
-            const netHoursN       = calcNetHoursNum(s.inTime, s.outTime);
-            const effectiveInTime = calcEffectiveInTime(s.inTime, lateMins);
-            const paidHrsN        = calcNetHoursNum(effectiveInTime, s.outTime);
-            const cappedHrs       = paidHrsN !== null ? Math.min(paidHrsN, 8) : null;
-            const otAmt           = emp.otHours > 0 ? emp.otHours * (emp.rate / 8) * emp.otRate : 0;
-            const todayWage       = emp.rateType === 'daily'
-              ? (cappedHrs !== null ? cappedHrs * (emp.rate / 8) + otAmt : null)
+            const lateMins    = calcLateMins(s.inTime);
+            const lateDeduct  = lateMins > 0 ? lateMins * (emp.rate / WORK_MINS) : 0;
+            const netHoursN   = calcNetHoursNum(s.inTime, s.outTime);
+            const paidHrsN    = calcNetHoursNum(calcScheduledStart(s.inTime), s.outTime);
+            const cappedHrs   = paidHrsN !== null ? Math.min(paidHrsN, 8) : null;
+            const otAmt       = emp.otHours > 0 ? emp.otHours * (emp.rate / 8) * emp.otRate : 0;
+            const todayWage   = emp.rateType === 'daily'
+              ? (cappedHrs !== null ? cappedHrs * (emp.rate / 8) - lateDeduct + otAmt : null)
               : (netHoursN ? netHoursN * emp.rate + otAmt : null);
             const isSaving   = attSavingId === emp.employeeId;
             const isSaved    = attSavedId  === emp.employeeId;
@@ -1000,15 +999,14 @@ export default function App() {
               <tbody>
                 {filteredAtt.map((emp, idx) => {
                   const s          = attCardState[emp.employeeId] || {};
-                  const lateMins        = calcLateMins(s.inTime);
-                  const lateDeduct      = lateMins > 0 ? lateMins * (emp.rate / WORK_MINS) : 0;
-                  const netHoursN       = calcNetHoursNum(s.inTime, s.outTime);
-                  const effectiveInTime = calcEffectiveInTime(s.inTime, lateMins);
-                  const paidHrsN        = calcNetHoursNum(effectiveInTime, s.outTime);
-                  const cappedHrs       = paidHrsN !== null ? Math.min(paidHrsN, 8) : null;
-                  const otAmt           = emp.otHours > 0 ? emp.otHours * (emp.rate / 8) * emp.otRate : 0;
-                  const todayWage       = emp.rateType === 'daily'
-                    ? (cappedHrs !== null ? cappedHrs * (emp.rate / 8) + otAmt : null)
+                  const lateMins    = calcLateMins(s.inTime);
+                  const lateDeduct  = lateMins > 0 ? lateMins * (emp.rate / WORK_MINS) : 0;
+                  const netHoursN   = calcNetHoursNum(s.inTime, s.outTime);
+                  const paidHrsN    = calcNetHoursNum(calcScheduledStart(s.inTime), s.outTime);
+                  const cappedHrs   = paidHrsN !== null ? Math.min(paidHrsN, 8) : null;
+                  const otAmt       = emp.otHours > 0 ? emp.otHours * (emp.rate / 8) * emp.otRate : 0;
+                  const todayWage   = emp.rateType === 'daily'
+                    ? (cappedHrs !== null ? cappedHrs * (emp.rate / 8) - lateDeduct + otAmt : null)
                     : (netHoursN ? netHoursN * emp.rate + otAmt : null);
                   const isSaving   = attSavingId === emp.employeeId;
                   const isSaved    = attSavedId  === emp.employeeId;
