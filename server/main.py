@@ -586,7 +586,7 @@ def create_payroll_period(body: CreatePayrollPeriodBody):
         emp_daily = [d for d in daily_logs if d["employeeId"] == emp_id]
         work_days = len([d for d in emp_daily if d["workedHours"] > 0])
         if rate_type == "daily":
-            base = round(sum(min(d["workedHours"], 8) * hourly_rate for d in emp_daily if d["workedHours"] > 0), 2)
+            base = round(sum(min(d["paidHours"], 8) * hourly_rate for d in emp_daily if d["workedHours"] > 0), 2)
         else:
             base = round(sum(d["workedHours"] * rate for d in emp_daily if d["workedHours"] > 0), 2)
 
@@ -1427,6 +1427,7 @@ def group_logs_to_daily(rows):
                 "breakIn":     "-",
                 "out":         "-",
                 "workedHours": 0,
+                "paidHours":   0,
                 "lateMins":    0,
                 "status":      "incomplete",
             }
@@ -1477,5 +1478,12 @@ def group_logs_to_daily(rows):
         if total_mins > 0:
             entry["workedHours"] = round(total_mins / 60, 2)
             entry["status"]      = "complete"
+            # paidHours: นับจาก scheduledStart (ไม่ใช่ inTime จริง) สำหรับคำนวณค่าแรงงวด
+            if entry["in"] != "-":
+                sched_start = 13 * 60 if in_m >= 12 * 60 else 8 * 60
+                sched_lunch = 60 if sched_start < 12 * 60 and out_m > 13 * 60 else 0
+                entry["paidHours"] = round(max(0, out_m - sched_start - sched_lunch) / 60, 2)
+            else:
+                entry["paidHours"] = entry["workedHours"]
 
     return sorted(map_.values(), key=lambda x: x["date"])
