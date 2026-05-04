@@ -1447,7 +1447,7 @@ def group_logs_to_daily(rows):
             if sched and entry["in"] != "-":
                 diff = in_mins - time_to_minutes(sched["expected"])
                 if diff >= sched["graceMin"]:
-                    entry["lateMins"] += diff
+                    entry["lateMins"] += diff - 15
         else:
             for action_type, field in [("เข้างาน", "in"), ("เข้างานบ่าย", "breakIn")]:
                 sched = SCHEDULE.get(action_type)
@@ -1455,7 +1455,7 @@ def group_logs_to_daily(rows):
                 if sched and actual != "-":
                     diff = time_to_minutes(actual) - time_to_minutes(sched["expected"])
                     if diff >= sched["graceMin"]:
-                        entry["lateMins"] += diff
+                        entry["lateMins"] += diff - 15
 
         if entry["out"] == "-":
             continue

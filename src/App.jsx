@@ -790,7 +790,7 @@ export default function App() {
     const mins = toMins(inTime);
     const ref = mins >= 12 * 60 ? 13 * 60 : 8 * 60;
     const diff = mins - ref;
-    return diff >= 16 ? diff : 0;
+    return diff >= 16 ? diff - 15 : 0;
   };
 
   // If within grace period (lateMins=0), use scheduled start so pay is not reduced
