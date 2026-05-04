@@ -5,6 +5,7 @@ import EmployeesPage from './components/EmployeesPage';
 import PieceRatePage from './components/PieceRatePage';
 import AdvancesPage from './components/AdvancesPage';
 import PayrollPeriodDetail from './components/PayrollPeriodDetail';
+import DateInput from './components/DateInput';
 
 // ============================================================
 //  SVG Icons
@@ -120,6 +121,7 @@ const NAV_ITEMS = [
 const formatTime = (d) => d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 const formatDate = (d) => d.toLocaleDateString('th-TH', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 const formatMoney = (n) => Number(n || 0).toLocaleString('th-TH', { style: 'currency', currency: 'THB' });
+const fmtD = (s) => s ? s.slice(0, 10).split('-').reverse().join('/') : '';
 
 // ============================================================
 //  Main App
@@ -499,7 +501,7 @@ export default function App() {
         });
       }
       const hrs = calcNetHours(attIn, attOut);
-      setAttSuccess(`บันทึก ${emp?.name || attEmpId} วันที่ ${attDate} สำเร็จ${hrs ? ` — ทำงาน ${hrs} ชม.` : ''}`);
+      setAttSuccess(`บันทึก ${emp?.name || attEmpId} วันที่ ${fmtD(attDate)} สำเร็จ${hrs ? ` — ทำงาน ${hrs} ชม.` : ''}`);
       setAttIn(''); setAttOut(''); setAttNote('');
     } catch (err) {
       setAttError('บันทึกไม่สำเร็จ กรุณาลองใหม่');
@@ -538,7 +540,7 @@ export default function App() {
         note:         otNote.trim(),
         otRate:       otRate,
       });
-      setOtSuccess(`บันทึก OT ${otHours} ชม. (x${otRate}) ให้ ${emp?.name || otEmpId} วันที่ ${otDate} สำเร็จ`);
+      setOtSuccess(`บันทึก OT ${otHours} ชม. (x${otRate}) ให้ ${emp?.name || otEmpId} วันที่ ${fmtD(otDate)} สำเร็จ`);
       setOtHours(''); setOtNote(''); setOtRate(1.0);
     } catch (err) {
       setOtError('บันทึก OT ไม่สำเร็จ กรุณาลองใหม่');
@@ -693,7 +695,7 @@ export default function App() {
             <p className={`text-sm ${unpaidCount > 0 ? 'text-amber-600' : 'text-slate-400'}`}>คนที่ยังไม่ได้รับเงิน</p>
             <p className={`text-3xl font-bold mt-0.5 ${unpaidCount > 0 ? 'text-amber-700' : 'text-[#222222]'}`}>{unpaidCount}<span className="text-base font-normal ml-1">คน</span></p>
             {latestPeriod && latestPeriod.status !== 'Paid' && (
-              <p className={`text-xs mt-0.5 ${unpaidCount > 0 ? 'text-amber-500' : 'text-slate-400'}`}>งวด {latestPeriod.startDate} — {latestPeriod.endDate}</p>
+              <p className={`text-xs mt-0.5 ${unpaidCount > 0 ? 'text-amber-500' : 'text-slate-400'}`}>งวด {fmtD(latestPeriod.startDate)} — {fmtD(latestPeriod.endDate)}</p>
             )}
           </div>
         </div>
@@ -758,8 +760,8 @@ export default function App() {
           <p className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-3">งวดล่าสุด</p>
           <div className="flex items-center justify-between">
             <div>
-              <p className="font-bold text-[#222222] text-base">{latestPeriod.startDate} — {latestPeriod.endDate}</p>
-              <p className="text-slate-400 text-sm mt-0.5">สร้างเมื่อ {latestPeriod.createdAt?.slice(0, 10)}</p>
+              <p className="font-bold text-[#222222] text-base">{fmtD(latestPeriod.startDate)} — {fmtD(latestPeriod.endDate)}</p>
+              <p className="text-slate-400 text-sm mt-0.5">สร้างเมื่อ {fmtD(latestPeriod.createdAt)}</p>
             </div>
             <div className="flex items-center gap-3">
               <span className="text-xl font-bold text-[#7B8CFA]">{formatMoney(latestPeriod.grandTotal)}</span>
@@ -784,21 +786,21 @@ export default function App() {
 
   const calcLateMins = (inTime) => {
     if (!inTime) return 0;
-    const diff = inTime.split(':').reduce((h, m, i) => i === 0 ? h + Number(m) * 60 : h + Number(m), 0) - 8 * 60;
-    return diff >= 20 ? diff : 0;
-  };
-
-  const calcEarlyLeaveMins = (outTime) => {
-    if (!outTime) return 0;
     const toMins = t => t.split(':').reduce((h, m, i) => i === 0 ? h + Number(m) * 60 : h + Number(m), 0);
-    const diff = 17 * 60 - toMins(outTime);
-    return diff > 0 ? diff : 0;
+    const mins = toMins(inTime);
+    const ref = mins >= 12 * 60 ? 13 * 60 : 8 * 60;
+    const diff = mins - ref;
+    return diff >= 16 ? diff : 0;
   };
 
   const calcNetHoursNum = (inTime, outTime) => {
     if (!inTime || !outTime) return null;
     const toMins = t => t.split(':').reduce((h, m, i) => i === 0 ? h + Number(m) * 60 : h + Number(m), 0);
-    const mins = toMins(outTime) - toMins(inTime) - 60;
+    const inMins  = toMins(inTime);
+    const outMins = toMins(outTime);
+    // Subtract lunch only when shift spans over the lunch hour
+    const lunchMins = (inMins < 12 * 60 && outMins > 13 * 60) ? 60 : 0;
+    const mins = outMins - inMins - lunchMins;
     return mins > 0 ? mins / 60 : null;
   };
 
@@ -864,7 +866,7 @@ export default function App() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h2 className="text-2xl font-bold text-[#222222]">บันทึกเวลา</h2>
         <div className="flex items-center gap-2 flex-wrap">
-          <input type="date" value={attDate} onChange={e => setAttDate(e.target.value)}
+          <DateInput value={attDate} onChange={e => setAttDate(e.target.value)}
             className="bg-white border border-slate-200 rounded-2xl px-4 py-2.5 text-sm outline-none focus:border-[#7B8CFA]" />
           <button onClick={() => loadAttendanceDay(attDate)}
             className="bg-[#F2F2F2] p-2.5 rounded-2xl hover:bg-slate-200 cursor-pointer"><IconRefresh /></button>
@@ -910,14 +912,14 @@ export default function App() {
         /* ── Mobile: card per employee ── */
         <div className="flex flex-col gap-3">
           {filteredAtt.map((emp) => {
-            const s              = attCardState[emp.employeeId] || {};
-            const lateMins       = calcLateMins(s.inTime);
-            const earlyLeaveMins = calcEarlyLeaveMins(s.outTime);
-            const lateDeduct     = lateMins > 0 ? lateMins * (emp.rate / WORK_MINS) : 0;
-            const netHoursN      = calcNetHoursNum(s.inTime, s.outTime);
-            const otAmt          = emp.otHours > 0 ? emp.otHours * (emp.rate / 8) * emp.otRate : 0;
-            const todayWage      = emp.rateType === 'daily'
-              ? (emp.rate / WORK_MINS) * (WORK_MINS - lateMins - earlyLeaveMins) + otAmt
+            const s          = attCardState[emp.employeeId] || {};
+            const lateMins   = calcLateMins(s.inTime);
+            const lateDeduct = lateMins > 0 ? lateMins * (emp.rate / WORK_MINS) : 0;
+            const netHoursN  = calcNetHoursNum(s.inTime, s.outTime);
+            const cappedHrs  = netHoursN !== null ? Math.min(netHoursN, 8) : null;
+            const otAmt      = emp.otHours > 0 ? emp.otHours * (emp.rate / 8) * emp.otRate : 0;
+            const todayWage  = emp.rateType === 'daily'
+              ? (cappedHrs !== null ? cappedHrs * (emp.rate / 8) - lateDeduct + otAmt : null)
               : (netHoursN ? netHoursN * emp.rate + otAmt : null);
             const isSaving   = attSavingId === emp.employeeId;
             const isSaved    = attSavedId  === emp.employeeId;
@@ -945,9 +947,8 @@ export default function App() {
                 </div>
                 {/* Stats row */}
                 <div className="flex items-center gap-3 text-xs">
-                  <span className="text-slate-400">ชม.สุทธิ <span className="font-bold text-[#7B8CFA]">{netHoursN ? netHoursN.toFixed(1) : '—'}</span></span>
+                  <span className="text-slate-400">ชม.สุทธิ <span className="font-bold text-[#7B8CFA]">{cappedHrs !== null ? cappedHrs.toFixed(1) : '—'}</span></span>
                   {lateMins > 0 && <span className="text-red-500 font-medium">สาย {lateMins} นาที</span>}
-                  {earlyLeaveMins > 0 && <span className="text-orange-500 font-medium">กลับก่อน {earlyLeaveMins} นาที</span>}
                   {emp.otHours > 0 && <span className="text-emerald-600 font-medium">OT {emp.otHours} ชม.</span>}
                   {todayWage != null && <span className="ml-auto font-bold text-emerald-600">฿{todayWage.toFixed(0)}</span>}
                 </div>
@@ -989,14 +990,14 @@ export default function App() {
               </thead>
               <tbody>
                 {filteredAtt.map((emp, idx) => {
-                  const s              = attCardState[emp.employeeId] || {};
-                  const lateMins       = calcLateMins(s.inTime);
-                  const earlyLeaveMins = calcEarlyLeaveMins(s.outTime);
-                  const lateDeduct     = lateMins > 0 ? lateMins * (emp.rate / WORK_MINS) : 0;
-                  const netHoursN      = calcNetHoursNum(s.inTime, s.outTime);
-                  const otAmt          = emp.otHours > 0 ? emp.otHours * (emp.rate / 8) * emp.otRate : 0;
-                  const todayWage      = emp.rateType === 'daily'
-                    ? (emp.rate / WORK_MINS) * (WORK_MINS - lateMins - earlyLeaveMins) + otAmt
+                  const s          = attCardState[emp.employeeId] || {};
+                  const lateMins   = calcLateMins(s.inTime);
+                  const lateDeduct = lateMins > 0 ? lateMins * (emp.rate / WORK_MINS) : 0;
+                  const netHoursN  = calcNetHoursNum(s.inTime, s.outTime);
+                  const cappedHrs  = netHoursN !== null ? Math.min(netHoursN, 8) : null;
+                  const otAmt      = emp.otHours > 0 ? emp.otHours * (emp.rate / 8) * emp.otRate : 0;
+                  const todayWage  = emp.rateType === 'daily'
+                    ? (cappedHrs !== null ? cappedHrs * (emp.rate / 8) - lateDeduct + otAmt : null)
                     : (netHoursN ? netHoursN * emp.rate + otAmt : null);
                   const isSaving   = attSavingId === emp.employeeId;
                   const isSaved    = attSavedId  === emp.employeeId;
@@ -1082,7 +1083,7 @@ export default function App() {
 
         <div className="flex flex-col gap-1.5">
           <label className="text-sm font-bold text-slate-600">วันที่</label>
-          <input type="date" value={otDate} onChange={e => { setOtDate(e.target.value); setOtSuccess(null); setOtError(null); }}
+          <DateInput value={otDate} onChange={e => { setOtDate(e.target.value); setOtSuccess(null); setOtError(null); }}
             className="bg-white border border-slate-200 rounded-xl px-4 py-3 text-base outline-none focus:border-[#7B8CFA]" />
         </div>
 
@@ -1155,12 +1156,12 @@ export default function App() {
             <div className="flex gap-3 flex-wrap items-end">
               <div className="flex flex-col gap-1 flex-1 min-w-[140px]">
                 <label className="text-sm text-slate-500">วันเริ่มต้น</label>
-                <input type="date" value={payPeriodStart} onChange={e => setPayPeriodStart(e.target.value)}
+                <DateInput value={payPeriodStart} onChange={e => setPayPeriodStart(e.target.value)}
                   className="border border-slate-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-[#7B8CFA] bg-white" />
               </div>
               <div className="flex flex-col gap-1 flex-1 min-w-[140px]">
                 <label className="text-sm text-slate-500">วันสิ้นสุด</label>
-                <input type="date" value={payPeriodEnd} onChange={e => setPayPeriodEnd(e.target.value)}
+                <DateInput value={payPeriodEnd} onChange={e => setPayPeriodEnd(e.target.value)}
                   className="border border-slate-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-[#7B8CFA] bg-white" />
               </div>
               <button onClick={handleCreatePeriod} disabled={!payPeriodStart || !payPeriodEnd || payPeriodLoading}
@@ -1224,8 +1225,8 @@ export default function App() {
                 <button key={p.id} onClick={() => handleViewPeriod(p)}
                   className="bg-white rounded-2xl border border-slate-100 px-5 py-4 flex items-center justify-between gap-4 cursor-pointer hover:border-[#7B8CFA]/30 hover:shadow-sm transition-all text-left w-full">
                   <div className="flex flex-col gap-0.5">
-                    <p className="font-bold text-[#222222]">{p.startDate} — {p.endDate}</p>
-                    <p className="text-slate-400 text-xs">สร้างเมื่อ {p.createdAt?.slice(0, 10)}{p.paidAt ? ` · จ่ายเมื่อ ${p.paidAt?.slice(0, 10)}` : ''}</p>
+                    <p className="font-bold text-[#222222]">{fmtD(p.startDate)} — {fmtD(p.endDate)}</p>
+                    <p className="text-slate-400 text-xs">สร้างเมื่อ {fmtD(p.createdAt)}{p.paidAt ? ` · จ่ายเมื่อ ${fmtD(p.paidAt)}` : ''}</p>
                   </div>
                   <div className="flex items-center gap-3">
                     <span className="text-lg font-bold text-[#7B8CFA]">{formatMoney(p.grandTotal)}</span>

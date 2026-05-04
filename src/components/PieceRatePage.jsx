@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import * as api from '../lib/api';
+import DateInput from './DateInput';
 
 const today = () => new Date().toLocaleDateString('en-CA');
 const formatMoney = (n) =>
@@ -119,12 +120,26 @@ export default function PieceRatePage({ employees }) {
     setFQty(''); setFLen(''); setFNote('');
   };
 
-  // บันทึกทั้งหมดใน queue
+  // บันทึกทั้งหมดใน queue (+ ของในฟอร์มถ้ากรอกอยู่)
   const handleSaveAll = async () => {
-    if (queue.length === 0) return;
+    let finalQueue = [...queue];
+    if (fEmpId && fJobId && fQty) {
+      const emp = employees.find(e => e.employeeId === fEmpId);
+      const job = selectedJob;
+      const { unitPrice: up, totalAmount: ta } = calcPrice(job, fQty, fLen);
+      finalQueue.push({
+        id: Date.now(),
+        employeeId: fEmpId, employeeName: emp?.name || fEmpId,
+        jobId: job.id, jobName: job.jobName, unit: job.unit,
+        quantity: parseFloat(fQty),
+        unitLength: job.hasLength ? (parseFloat(fLen) || 0) : 0,
+        unitPrice: up, totalAmount: ta, note: fNote,
+      });
+    }
+    if (finalQueue.length === 0) return;
     setSaving(true);
     try {
-      await Promise.all(queue.map(item =>
+      await Promise.all(finalQueue.map(item =>
         api.createPieceRateLog({
           employeeId: item.employeeId, employeeName: item.employeeName,
           jobId: item.jobId, logDate: pageDate,
@@ -133,6 +148,7 @@ export default function PieceRatePage({ employees }) {
         })
       ));
       setQueue([]);
+      setFQty(''); setFLen(''); setFNote('');
       setSaveOk(true);
       setTimeout(() => setSaveOk(false), 2000);
       loadLogs(pageDate);
@@ -216,7 +232,7 @@ export default function PieceRatePage({ employees }) {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h2 className="text-2xl font-bold text-[#222222]">งานเหมา</h2>
         <div className="flex items-center gap-2 flex-wrap">
-          <input type="date" value={pageDate}
+          <DateInput value={pageDate}
             onChange={e => setPageDate(e.target.value)}
             className="bg-white border border-slate-200 rounded-2xl px-4 py-2.5 text-sm outline-none focus:border-[#7B8CFA]" />
           <div className="flex gap-2">
@@ -303,11 +319,19 @@ export default function PieceRatePage({ employees }) {
               </div>
             )}
 
-            <button onClick={handleAddToQueue}
-              disabled={!fEmpId || !fJobId || !fQty}
-              className="bg-[#10B981] disabled:opacity-40 text-white font-bold px-6 py-3 rounded-2xl cursor-pointer active:scale-95 transition-transform self-start">
-              + เพิ่มรายการ
-            </button>
+            <div className="flex items-center gap-3 flex-wrap">
+              <button onClick={handleSaveAll}
+                disabled={(!fEmpId || !fJobId || !fQty) && queue.length === 0 || saving}
+                className="bg-[#7B8CFA] disabled:opacity-40 text-white font-bold px-6 py-3 rounded-2xl cursor-pointer active:scale-95 transition-transform">
+                {saving ? 'กำลังบันทึก...' : queue.length > 0 ? `บันทึก ${queue.length + ((fEmpId && fJobId && fQty) ? 1 : 0)} รายการ` : 'บันทึก'}
+              </button>
+              <button onClick={handleAddToQueue}
+                disabled={!fEmpId || !fJobId || !fQty}
+                className="bg-[#F8FAFC] border border-slate-200 disabled:opacity-40 text-slate-600 font-bold px-6 py-3 rounded-2xl cursor-pointer active:scale-95 transition-transform">
+                + เพิ่มเข้าคิว
+              </button>
+              {saveOk && <p className="text-emerald-600 font-medium text-sm flex items-center gap-1"><IconCheck />บันทึกแล้ว</p>}
+            </div>
           </div>
 
           {/* Queue */}
@@ -341,9 +365,8 @@ export default function PieceRatePage({ employees }) {
               <div className="flex items-center gap-3 pt-1">
                 <button onClick={handleSaveAll} disabled={saving}
                   className="bg-[#7B8CFA] disabled:opacity-40 text-white font-bold px-6 py-3 rounded-2xl cursor-pointer active:scale-95 transition-transform">
-                  {saving ? 'กำลังบันทึก...' : `บันทึกทั้งหมด (${queue.length} รายการ)`}
+                  {saving ? 'กำลังบันทึก...' : `บันทึก ${queue.length + ((fEmpId && fJobId && fQty) ? 1 : 0)} รายการ`}
                 </button>
-                {saveOk && <p className="text-emerald-600 font-medium text-sm flex items-center gap-1"><IconCheck />บันทึกแล้ว</p>}
               </div>
             </div>
           )}

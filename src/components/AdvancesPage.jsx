@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import * as api from '../lib/api';
+import DateInput from './DateInput';
 
 const today = () => new Date().toLocaleDateString('en-CA');
+const fmtD = (s) => s ? s.slice(0, 10).split('-').reverse().join('/') : '';
 const formatMoney = (n) =>
   '฿' + Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const inputCls = 'bg-[#F8FAFC] border border-slate-200 rounded-2xl px-4 py-3 text-base outline-none focus:border-[#7B8CFA] w-full';
@@ -179,7 +181,7 @@ export default function AdvancesPage() {
           <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-1.5">
               <label className="text-sm font-semibold text-slate-500">วันที่เบิก *</label>
-              <input type="date" value={addDate} onChange={e => setAddDate(e.target.value)} className={inputCls} />
+              <DateInput value={addDate} onChange={e => setAddDate(e.target.value)} className={inputCls} />
             </div>
             <div className="flex flex-col gap-1.5">
               <label className="text-sm font-semibold text-slate-500">จำนวนเงิน (บาท) *</label>
@@ -226,7 +228,7 @@ export default function AdvancesPage() {
                 {history.map(h => (
                   <div key={h.id} className="border border-slate-100 rounded-2xl px-4 py-3 flex items-center justify-between gap-3">
                     <div>
-                      <p className="text-sm font-medium text-slate-700">{h.tranDate}</p>
+                      <p className="text-sm font-medium text-slate-700">{fmtD(h.tranDate)}</p>
                       <p className="text-xs text-slate-400 mt-0.5">{h.note || (h.type === 'หัก' ? 'หักจากค่าแรง' : 'เบิกล่วงหน้า')}</p>
                     </div>
                     <div className="text-right flex-shrink-0">

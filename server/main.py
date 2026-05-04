@@ -22,8 +22,8 @@ DB_CONN_STR = (
 )
 BANGKOK_TZ = pytz.timezone('Asia/Bangkok')
 SCHEDULE = {
-    'เข้างาน':     {'expected': '08:00', 'graceMin': 20},
-    'เข้างานบ่าย': {'expected': '13:00', 'graceMin': 20},
+    'เข้างาน':     {'expected': '08:00', 'graceMin': 16},
+    'เข้างานบ่าย': {'expected': '13:00', 'graceMin': 16},
 }
 WORK_MINS_PER_DAY = 480
 
@@ -584,10 +584,13 @@ def create_payroll_period(body: CreatePayrollPeriodBody):
 
         # กรอง logs ของคนนี้ (daily_logs เป็น list)
         emp_daily = [d for d in daily_logs if d["employeeId"] == emp_id]
-        work_days = len([d for d in emp_daily if d["in"] != "-"])
-        base = rate * work_days if rate_type == "daily" else 0
+        work_days = len([d for d in emp_daily if d["workedHours"] > 0])
+        if rate_type == "daily":
+            base = round(sum(min(d["workedHours"], 8) * hourly_rate for d in emp_daily if d["workedHours"] > 0), 2)
+        else:
+            base = round(sum(d["workedHours"] * rate for d in emp_daily if d["workedHours"] > 0), 2)
 
-        # หักมาสาย (นาที → บาท)
+        # หักมาสาย (นาที → บาท) — half-day ไม่หัก (lateMins=0 อยู่แล้ว)
         late_deduction = 0
         for d in emp_daily:
             if d.get("lateMins", 0) > 0:
@@ -1434,14 +1437,25 @@ def group_logs_to_daily(rows):
         if action == "ออกงาน":       entry["out"]      = time_val
 
     for entry in map_.values():
-        # คำนวณสาย
-        for action_type, field in [("เข้างาน", "in"), ("เข้างานบ่าย", "breakIn")]:
-            sched = SCHEDULE.get(action_type)
-            actual = entry[field]
-            if sched and actual != "-":
-                diff = time_to_minutes(actual) - time_to_minutes(sched["expected"])
+        in_mins  = time_to_minutes(entry["in"])  if entry["in"]  != "-" else None
+        out_mins = time_to_minutes(entry["out"]) if entry["out"] != "-" else None
+
+        # คำนวณสาย — ตรวจว่าเป็น shift บ่าย (เข้า >= 12:00) หรือ shift เช้า
+        is_afternoon_shift = (in_mins is not None and in_mins >= 12 * 60)
+        if is_afternoon_shift:
+            sched = SCHEDULE.get('เข้างานบ่าย')
+            if sched and entry["in"] != "-":
+                diff = in_mins - time_to_minutes(sched["expected"])
                 if diff >= sched["graceMin"]:
                     entry["lateMins"] += diff
+        else:
+            for action_type, field in [("เข้างาน", "in"), ("เข้างานบ่าย", "breakIn")]:
+                sched = SCHEDULE.get(action_type)
+                actual = entry[field]
+                if sched and actual != "-":
+                    diff = time_to_minutes(actual) - time_to_minutes(sched["expected"])
+                    if diff >= sched["graceMin"]:
+                        entry["lateMins"] += diff
 
         if entry["out"] == "-":
             continue
@@ -1450,9 +1464,12 @@ def group_logs_to_daily(rows):
         if entry["in"] != "-":
             in_m  = time_to_minutes(entry["in"])
             out_m = time_to_minutes(entry["out"])
-            break_m = 0
             if entry["breakOut"] != "-" and entry["breakIn"] != "-":
                 break_m = time_to_minutes(entry["breakIn"]) - time_to_minutes(entry["breakOut"])
+            elif in_m < 12 * 60 and out_m > 13 * 60:
+                break_m = 60  # assume 60-min lunch when shift spans lunch hour
+            else:
+                break_m = 0
             total_mins = out_m - in_m - break_m
         elif entry["breakIn"] != "-":
             total_mins = time_to_minutes(entry["out"]) - time_to_minutes(entry["breakIn"])

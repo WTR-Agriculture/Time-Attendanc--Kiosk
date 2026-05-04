@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import * as XLSX from 'xlsx';
 import * as api from '../lib/api';
 
-const fmtDate = (s) => s ? s.slice(0, 10) : '';
+const fmtDate = (s) => s ? s.slice(0, 10).split('-').reverse().join('/') : '';
 
 const fmt = (n) => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtB = (n) => '฿' + fmt(n);
@@ -168,7 +168,7 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
 
   // ── Delete period ──
   const handleDelete = async () => {
-    if (!confirm(`ลบงวด ${detail.startDate} — ${detail.endDate} ?\nข้อมูลทั้งหมดในงวดนี้จะหายถาวร`)) return;
+    if (!confirm(`ลบงวด ${fmtDate(detail.startDate)} — ${fmtDate(detail.endDate)} ?\nข้อมูลทั้งหมดในงวดนี้จะหายถาวร`)) return;
     setDeleting(true);
     try {
       await api.deletePayrollPeriod(period.id);
@@ -220,7 +220,7 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
   const exportCSV = () => {
     if (!detail) return;
     const rows = [
-      [`งวดค่าแรง: ${detail.startDate} — ${detail.endDate}`],
+      [`งวดค่าแรง: ${fmtDate(detail.startDate)} — ${fmtDate(detail.endDate)}`],
       [`สถานะ: ${periodStatusText()}`],
       [],
       ['ชื่อ', 'วันทำงาน', 'ค่าแรงปกติ', 'หักมาสาย', 'OT (฿)', 'งานเหมา (฿)', 'หักเบิก (฿)', 'สุทธิ (฿)', 'สถานะการจ่าย'],
@@ -259,7 +259,7 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
 
     // Sheet 1: สรุป
     const summaryAoa = [
-      [`งวดค่าแรง: ${detail.startDate} — ${detail.endDate}`],
+      [`งวดค่าแรง: ${fmtDate(detail.startDate)} — ${fmtDate(detail.endDate)}`],
       [`สถานะ: ${periodStatusText()}`],
       [],
       ['ชื่อ', 'วันทำงาน', 'ค่าแรงปกติ', 'หักมาสาย', 'OT', 'งานเหมา', 'หักเบิก', 'สุทธิ', 'สถานะการจ่าย'],
@@ -329,7 +329,7 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
     }).join('');
 
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
-      <title>งวดค่าแรง ${detail.startDate} — ${detail.endDate}</title>
+      <title>งวดค่าแรง ${fmtDate(detail.startDate)} — ${fmtDate(detail.endDate)}</title>
       <style>
         body { font-family: 'Sarabun', sans-serif; font-size: 13px; color: #111; margin: 20px; }
         h2 { font-size: 18px; margin-bottom: 4px; }
@@ -362,7 +362,7 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
         <button class="btn btn-back" onclick="window.close()">← ปิดหน้านี้</button>
         <button class="btn btn-print" onclick="window.print()">พิมพ์ / บันทึก PDF</button>
       </div>
-      <h2>งวดค่าแรง: ${detail.startDate} — ${detail.endDate}</h2>
+      <h2>งวดค่าแรง: ${fmtDate(detail.startDate)} — ${fmtDate(detail.endDate)}</h2>
       <p>สถานะ: ${periodStatusText()}</p>
       <table>
         <colgroup>
@@ -426,7 +426,7 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div>
             <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider mb-1">งวดค่าแรง</p>
-            <h3 className="text-xl font-bold text-[#222222]">{detail.startDate} — {detail.endDate}</h3>
+            <h3 className="text-xl font-bold text-[#222222]">{fmtDate(detail.startDate)} — {fmtDate(detail.endDate)}</h3>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <span className={`text-sm font-bold px-4 py-1.5 rounded-full ${statusBadge.cls}`}>

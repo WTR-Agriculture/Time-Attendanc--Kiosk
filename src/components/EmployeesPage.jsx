@@ -37,6 +37,7 @@ const IconReceipt = () => (
 function formatMoney(n) {
   return '฿' + Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
+const fmtD = (s) => s ? s.slice(0, 10).split('-').reverse().join('/') : '';
 
 function getInitials(name = '') {
   const parts = name.trim().split(' ');
@@ -402,7 +403,7 @@ export default function EmployeesPage({ employees, onBack, onRefresh }) {
                 {payData.map((p, i) => (
                   <div key={i} className="border border-slate-100 rounded-2xl px-4 py-3 flex flex-col gap-1.5">
                     <div className="flex justify-between items-center">
-                      <span className="font-medium text-slate-700 text-sm">{p.startDate} — {p.endDate}</span>
+                      <span className="font-medium text-slate-700 text-sm">{fmtD(p.startDate)} — {fmtD(p.endDate)}</span>
                       <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${p.status === 'Paid' ? 'bg-green-100 text-green-600' : 'bg-amber-100 text-amber-600'}`}>
                         {p.status === 'Paid' ? 'จ่ายแล้ว' : 'รอจ่าย'}
                       </span>
@@ -414,7 +415,7 @@ export default function EmployeesPage({ employees, onBack, onRefresh }) {
                       {p.otHours > 0 && <span className="text-emerald-500">OT +{p.otHours}ชม.</span>}
                     </div>
                     <div className="flex justify-between items-center">
-                      <span className="text-xs text-slate-300">{p.paidAt ? `จ่ายเมื่อ ${p.paidAt.slice(0, 10)}` : ''}</span>
+                      <span className="text-xs text-slate-300">{p.paidAt ? `จ่ายเมื่อ ${fmtD(p.paidAt)}` : ''}</span>
                       <span className="font-bold text-[#7B8CFA]">{formatMoney(p.netTotal)}</span>
                     </div>
                   </div>
