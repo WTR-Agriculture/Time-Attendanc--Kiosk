@@ -922,9 +922,10 @@ export default function App() {
             const s          = attCardState[emp.employeeId] || {};
             const lateMins        = calcLateMins(s.inTime);
             const lateDeduct      = lateMins > 0 ? lateMins * (emp.rate / WORK_MINS) : 0;
+            const netHoursN       = calcNetHoursNum(s.inTime, s.outTime);
             const effectiveInTime = calcEffectiveInTime(s.inTime, lateMins);
-            const netHoursN       = calcNetHoursNum(effectiveInTime, s.outTime);
-            const cappedHrs       = netHoursN !== null ? Math.min(netHoursN, 8) : null;
+            const paidHrsN        = calcNetHoursNum(effectiveInTime, s.outTime);
+            const cappedHrs       = paidHrsN !== null ? Math.min(paidHrsN, 8) : null;
             const otAmt           = emp.otHours > 0 ? emp.otHours * (emp.rate / 8) * emp.otRate : 0;
             const todayWage       = emp.rateType === 'daily'
               ? (cappedHrs !== null ? cappedHrs * (emp.rate / 8) + otAmt : null)
@@ -1001,9 +1002,10 @@ export default function App() {
                   const s          = attCardState[emp.employeeId] || {};
                   const lateMins        = calcLateMins(s.inTime);
                   const lateDeduct      = lateMins > 0 ? lateMins * (emp.rate / WORK_MINS) : 0;
+                  const netHoursN       = calcNetHoursNum(s.inTime, s.outTime);
                   const effectiveInTime = calcEffectiveInTime(s.inTime, lateMins);
-                  const netHoursN       = calcNetHoursNum(effectiveInTime, s.outTime);
-                  const cappedHrs       = netHoursN !== null ? Math.min(netHoursN, 8) : null;
+                  const paidHrsN        = calcNetHoursNum(effectiveInTime, s.outTime);
+                  const cappedHrs       = paidHrsN !== null ? Math.min(paidHrsN, 8) : null;
                   const otAmt           = emp.otHours > 0 ? emp.otHours * (emp.rate / 8) * emp.otRate : 0;
                   const todayWage       = emp.rateType === 'daily'
                     ? (cappedHrs !== null ? cappedHrs * (emp.rate / 8) + otAmt : null)
