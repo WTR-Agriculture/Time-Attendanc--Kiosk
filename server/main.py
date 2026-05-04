@@ -1,6 +1,6 @@
 """
 Time Attendance — FastAPI Backend
-รันด้วย: uvicorn main:app --host 0.0.0.0 --port 8000
+รันด้วย: uvicorn main:app --host 0.0.0.0 --port 8001
 """
 
 from fastapi import FastAPI, HTTPException
@@ -274,6 +274,9 @@ def get_payroll(week: Optional[str] = None):
         if row["workedHours"] > 0:
             summary[emp_id]["days"]  += 1
             summary[emp_id]["hours"] += row["workedHours"]
+            if summary[emp_id]["rateType"] == "daily":
+                hourly = summary[emp_id]["rate"] / 8
+                summary[emp_id]["total"] += round(min(row.get("paidHours", 0), 8) * hourly, 2)
 
         if row.get("lateMins", 0) > 0 and summary[emp_id]["rateType"] == "daily":
             rate_per_min = summary[emp_id]["rate"] / WORK_MINS_PER_DAY
@@ -281,10 +284,10 @@ def get_payroll(week: Optional[str] = None):
 
     for emp in summary.values():
         emp["hours"] = round(emp["hours"], 2)
-        if emp["rateType"] == "daily":
-            emp["total"] = emp["days"] * emp["rate"]
-        else:
+        if emp["rateType"] == "hourly":
             emp["total"] = round(emp["hours"] * emp["rate"], 2)
+        else:
+            emp["total"] = round(emp["total"], 2)
         emp["lateDeduction"] = round(emp["lateDeduction"], 2)
         ot_entry = ot_map.get(emp["employeeId"], {"hours": 0, "weighted": 0})
         emp["otHours"]  = round(ot_entry["hours"], 2)
@@ -370,12 +373,12 @@ def get_dashboard(date: Optional[str] = None):
             info = checked_in[emp_id]
             late_mins = 0
             if info["inTime"]:
-                in_mins  = time_to_minutes(info["inTime"])
-                exp_mins = time_to_minutes(SCHEDULE["เข้างาน"]["expected"])
-                grace    = SCHEDULE["เข้างาน"]["graceMin"]
-                diff     = in_mins - exp_mins
-                if diff >= grace:
-                    late_mins = diff
+                in_mins      = time_to_minutes(info["inTime"])
+                is_afternoon = in_mins >= 12 * 60
+                sched        = SCHEDULE["เข้างานบ่าย"] if is_afternoon else SCHEDULE["เข้างาน"]
+                diff         = in_mins - time_to_minutes(sched["expected"])
+                if diff >= sched["graceMin"]:
+                    late_mins = diff - 15
 
             entry = {**emp, "inTime": info["inTime"], "actions": info["actions"], "lateMins": late_mins}
             present.append(entry)
