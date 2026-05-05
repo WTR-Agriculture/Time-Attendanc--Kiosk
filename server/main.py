@@ -43,7 +43,9 @@ app.add_middleware(
 #  DB helper
 # ============================================================
 def get_db():
-    return pyodbc.connect(DB_CONN_STR)
+    conn = pyodbc.connect(DB_CONN_STR)
+    conn.autocommit = True
+    return conn
 
 def get_bangkok_now():
     return datetime.now(BANGKOK_TZ)
