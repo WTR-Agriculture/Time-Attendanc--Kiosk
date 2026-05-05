@@ -1009,7 +1009,7 @@ def get_attendance_day(date: str):
                  for r in cursor.fetchall()]
 
     cursor.execute("""
-        SELECT EmployeeId, ActionType, TimeStr
+        SELECT EmployeeId, ActionType, TimeStr, Note
         FROM AttendanceLogs WHERE CAST(DateStr AS DATE) = ?
         ORDER BY TimeStr
     """, date)
@@ -1024,19 +1024,21 @@ def get_attendance_day(date: str):
     conn.close()
 
     att_map = {}
-    for emp_id, action, time_val in log_rows:
+    for emp_id, action, time_val, note_val in log_rows:
         t = str(time_val)[:5]
         if emp_id not in att_map:
-            att_map[emp_id] = {"in": None, "out": None}
+            att_map[emp_id] = {"in": None, "out": None, "note": ""}
         if action == "เข้างาน":
             att_map[emp_id]["in"] = t
         elif action == "ออกงาน":
             att_map[emp_id]["out"] = t
+        elif action == "หมายเหตุ" and note_val:
+            att_map[emp_id]["note"] = note_val
 
     result = []
     for emp in employees:
         emp_id = emp["employeeId"]
-        att   = att_map.get(emp_id, {"in": None, "out": None})
+        att   = att_map.get(emp_id, {"in": None, "out": None, "note": ""})
         ot    = ot_map.get(emp_id, {"hours": 0, "otRate": 1.0})
         late_mins = 0
         if att["in"]:
@@ -1044,7 +1046,8 @@ def get_attendance_day(date: str):
             if diff >= SCHEDULE["เข้างาน"]["graceMin"]:
                 late_mins = diff
         result.append({**emp, "inTime": att["in"], "outTime": att["out"],
-                        "lateMins": late_mins, "otHours": ot["hours"], "otRate": ot["otRate"]})
+                        "note": att["note"], "lateMins": late_mins,
+                        "otHours": ot["hours"], "otRate": ot["otRate"]})
 
     return {"date": date, "employees": result}
 
@@ -1068,17 +1071,17 @@ def save_attendance_day(body: AttendanceDayBody):
     cursor.execute("""
         DELETE FROM AttendanceLogs
         WHERE EmployeeId = ? AND CAST(DateStr AS DATE) = ?
-        AND ActionType IN (?, ?)
-    """, body.employeeId, body.date, 'เข้างาน', 'ออกงาน')
+        AND ActionType IN (?, ?, ?)
+    """, body.employeeId, body.date, 'เข้างาน', 'ออกงาน', 'หมายเหตุ')
 
     ts = int(now.timestamp() * 1000)
     if body.inTime:
         cursor.execute("""
             INSERT INTO AttendanceLogs
-                (Id, EmployeeId, EmployeeName, ActionType, TimestampServer, DateStr, TimeStr, ConfidenceScore, DeviceId)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)
+                (Id, EmployeeId, EmployeeName, ActionType, TimestampServer, DateStr, TimeStr, ConfidenceScore, DeviceId, Note)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
         """, f"LOG-{ts}-IN", body.employeeId, body.employeeName, 'เข้างาน',
-            f"{body.date} {body.inTime}:00", body.date, f"{body.inTime}:00", 'ADMIN')
+            f"{body.date} {body.inTime}:00", body.date, f"{body.inTime}:00", 'ADMIN', body.note or None)
     if body.outTime:
         cursor.execute("""
             INSERT INTO AttendanceLogs
@@ -1086,6 +1089,13 @@ def save_attendance_day(body: AttendanceDayBody):
             VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)
         """, f"LOG-{ts+1}-OUT", body.employeeId, body.employeeName, 'ออกงาน',
             f"{body.date} {body.outTime}:00", body.date, f"{body.outTime}:00", 'ADMIN')
+    if body.note and not body.inTime:
+        cursor.execute("""
+            INSERT INTO AttendanceLogs
+                (Id, EmployeeId, EmployeeName, ActionType, TimestampServer, DateStr, TimeStr, ConfidenceScore, DeviceId, Note)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+        """, f"LOG-{ts}-NOTE", body.employeeId, body.employeeName, 'หมายเหตุ',
+            f"{body.date} 00:00:00", body.date, '00:00:00', 'ADMIN', body.note)
 
     conn.commit()
     conn.close()
@@ -1488,8 +1498,9 @@ def group_logs_to_daily(rows):
             # paidHours: นับจาก scheduledStart (ไม่ใช่ inTime จริง) สำหรับคำนวณค่าแรงงวด
             if entry["in"] != "-":
                 sched_start = 13 * 60 if in_m >= 12 * 60 else 8 * 60
-                sched_lunch = 60 if sched_start < 12 * 60 and out_m > 13 * 60 else 0
-                entry["paidHours"] = round(max(0, out_m - sched_start - sched_lunch) / 60, 2)
+                eff_out     = min(out_m, 17 * 60)
+                sched_lunch = 60 if sched_start < 12 * 60 and eff_out > 13 * 60 else 0
+                entry["paidHours"] = round(max(0, eff_out - sched_start - sched_lunch) / 60, 2)
             else:
                 entry["paidHours"] = entry["workedHours"]
 

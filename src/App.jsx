@@ -783,6 +783,8 @@ export default function App() {
   //  Attendance Day helpers
   // ============================================================
   const WORK_MINS = 480;
+  const SCHED_END = '17:00';
+  const capOutTime = (t) => (t && t > SCHED_END) ? SCHED_END : t;
 
   const calcLateMins = (inTime) => {
     if (!inTime) return 0;
@@ -821,7 +823,7 @@ export default function App() {
         state[emp.employeeId] = {
           inTime:  emp.inTime  || '',
           outTime: emp.outTime || '',
-          note:    '',
+          note:    emp.note    || '',
         };
       });
       setAttCardState(state);
@@ -835,7 +837,7 @@ export default function App() {
 
   const handleSaveAttCard = async (emp) => {
     const s = attCardState[emp.employeeId] || {};
-    if (!s.inTime) return;
+    if (!s.inTime && !s.note?.trim()) return;
     setAttSavingId(emp.employeeId);
     try {
       await api.saveAttendanceDay({
@@ -855,7 +857,7 @@ export default function App() {
   const [attSavedAll,  setAttSavedAll]  = useState(false);
 
   const handleSaveAllAtt = async () => {
-    const toSave = attDayData.filter(emp => attCardState[emp.employeeId]?.inTime);
+    const toSave = attDayData.filter(emp => attCardState[emp.employeeId]?.inTime || attCardState[emp.employeeId]?.note?.trim());
     if (toSave.length === 0) return;
     setAttSavingAll(true);
     await Promise.all(toSave.map(emp => handleSaveAttCard(emp)));
@@ -923,7 +925,7 @@ export default function App() {
             const lateMins    = calcLateMins(s.inTime);
             const lateDeduct  = lateMins > 0 ? lateMins * (emp.rate / WORK_MINS) : 0;
             const netHoursN   = calcNetHoursNum(s.inTime, s.outTime);
-            const paidHrsN    = calcNetHoursNum(calcScheduledStart(s.inTime), s.outTime);
+            const paidHrsN    = calcNetHoursNum(calcScheduledStart(s.inTime), capOutTime(s.outTime));
             const cappedHrs   = paidHrsN !== null ? Math.min(paidHrsN, 8) : null;
             const otAmt       = emp.otHours > 0 ? emp.otHours * (emp.rate / 8) * emp.otRate : 0;
             const todayWage   = emp.rateType === 'daily'
@@ -967,7 +969,7 @@ export default function App() {
                     placeholder="หมายเหตุ"
                     className="flex-1 bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-[#7B8CFA]" />
                   <button onClick={() => handleSaveAttCard(emp)}
-                    disabled={!s.inTime || isSaving}
+                    disabled={(!s.inTime && !s.note?.trim()) || isSaving}
                     className={`font-bold px-4 py-2 rounded-xl text-sm cursor-pointer disabled:opacity-40 active:scale-95 transition-all whitespace-nowrap
                       ${isSaved ? 'bg-emerald-500 text-white' : 'bg-[#7B8CFA] text-white'}`}>
                     {isSaving ? '...' : isSaved ? <IconCheck cls="w-4 h-4" /> : 'บันทึก'}
@@ -1002,7 +1004,7 @@ export default function App() {
                   const lateMins    = calcLateMins(s.inTime);
                   const lateDeduct  = lateMins > 0 ? lateMins * (emp.rate / WORK_MINS) : 0;
                   const netHoursN   = calcNetHoursNum(s.inTime, s.outTime);
-                  const paidHrsN    = calcNetHoursNum(calcScheduledStart(s.inTime), s.outTime);
+                  const paidHrsN    = calcNetHoursNum(calcScheduledStart(s.inTime), capOutTime(s.outTime));
                   const cappedHrs   = paidHrsN !== null ? Math.min(paidHrsN, 8) : null;
                   const otAmt       = emp.otHours > 0 ? emp.otHours * (emp.rate / 8) * emp.otRate : 0;
                   const todayWage   = emp.rateType === 'daily'
@@ -1052,7 +1054,7 @@ export default function App() {
                       </td>
                       <td className="px-3 py-3 text-right">
                         <button onClick={() => handleSaveAttCard(emp)}
-                          disabled={!s.inTime || isSaving}
+                          disabled={(!s.inTime && !s.note?.trim()) || isSaving}
                           className={`font-bold px-4 py-2 rounded-xl text-xs cursor-pointer disabled:opacity-40 active:scale-95 transition-all whitespace-nowrap
                             ${isSaved ? 'bg-emerald-500 text-white' : 'bg-[#7B8CFA] text-white'}`}>
                           {isSaving ? '...' : isSaved ? <IconCheck cls="w-4 h-4" /> : 'บันทึก'}
