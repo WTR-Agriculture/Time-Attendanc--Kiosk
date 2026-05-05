@@ -1295,8 +1295,8 @@ export default function App() {
   const renderAdminLayout = () => (
     <div className="h-screen bg-[#F0F2F5] flex overflow-hidden">
 
-      {/* ============ SIDEBAR — desktop only ============ */}
-      <aside className="hidden md:flex w-56 bg-white border-r border-slate-100 flex-col shadow-sm flex-shrink-0 sticky top-0 h-screen overflow-y-auto">
+      {/* ============ SIDEBAR — desktop only (lg+) ============ */}
+      <aside className="hidden lg:flex w-56 bg-white border-r border-slate-100 flex-col shadow-sm flex-shrink-0 sticky top-0 h-screen overflow-y-auto">
         <div className="px-5 py-5 border-b border-slate-100">
           <p className="font-bold text-[#222222] text-base leading-tight">ระบบจัดการ<br />ค่าแรง</p>
           <p className="text-xs text-slate-400 mt-1 font-mono">{formatTime(currentTime)}</p>
@@ -1320,9 +1320,9 @@ export default function App() {
         </div>
       </aside>
 
-      {/* ============ MOBILE DRAWER ============ */}
+      {/* ============ MOBILE / TABLET DRAWER ============ */}
       {mobileNavOpen && (
-        <div className="fixed inset-0 z-50 md:hidden">
+        <div className="fixed inset-0 z-50 lg:hidden">
           {/* backdrop */}
           <div className="absolute inset-0 bg-black/40" onClick={() => setMobileNavOpen(false)} />
           {/* drawer */}
@@ -1362,8 +1362,8 @@ export default function App() {
       {/* ============ MAIN ============ */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
 
-        {/* Mobile top bar */}
-        <header className="md:hidden bg-white border-b border-slate-100 px-4 py-3 flex items-center justify-between flex-shrink-0 z-40">
+        {/* Mobile / Tablet top bar */}
+        <header className="lg:hidden bg-white border-b border-slate-100 px-4 py-3 flex items-center justify-between flex-shrink-0 z-40">
           <button onClick={() => setMobileNavOpen(true)} className="p-2 rounded-xl active:bg-slate-100 cursor-pointer">
             <svg className="w-6 h-6 text-[#222222]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
@@ -1377,7 +1377,7 @@ export default function App() {
 
         {/* Content */}
         <main className="flex-1 overflow-y-auto">
-          <div className="max-w-5xl mx-auto p-4 md:p-6">
+          <div className="max-w-5xl mx-auto p-4 lg:p-6">
             {activeTab === 'DASHBOARD'  && renderDashboard()}
             {activeTab === 'ATTENDANCE' && renderAttendance()}
             {activeTab === 'OT'         && renderOT()}
