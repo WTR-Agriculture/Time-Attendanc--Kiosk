@@ -1076,27 +1076,28 @@ def save_attendance_day(body: AttendanceDayBody):
         AND ActionType IN (?, ?, ?)
     """, body.employeeId, body.date, 'เข้างาน', 'ออกงาน', 'หมายเหตุ')
 
-    ts = int(now.timestamp() * 1000)
+    ts  = int(now.timestamp() * 1000)
+    eid = body.employeeId
     if body.inTime:
         cursor.execute("""
             INSERT INTO AttendanceLogs
                 (Id, EmployeeId, EmployeeName, ActionType, TimestampServer, DateStr, TimeStr, ConfidenceScore, DeviceId, Note)
             VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
-        """, f"LOG-{ts}-IN", body.employeeId, body.employeeName, 'เข้างาน',
+        """, f"LOG-{ts}-{eid}-IN", body.employeeId, body.employeeName, 'เข้างาน',
             f"{body.date} {body.inTime}:00", body.date, f"{body.inTime}:00", 'ADMIN', body.note or None)
     if body.outTime:
         cursor.execute("""
             INSERT INTO AttendanceLogs
                 (Id, EmployeeId, EmployeeName, ActionType, TimestampServer, DateStr, TimeStr, ConfidenceScore, DeviceId)
             VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)
-        """, f"LOG-{ts+1}-OUT", body.employeeId, body.employeeName, 'ออกงาน',
+        """, f"LOG-{ts}-{eid}-OUT", body.employeeId, body.employeeName, 'ออกงาน',
             f"{body.date} {body.outTime}:00", body.date, f"{body.outTime}:00", 'ADMIN')
     if body.note and not body.inTime:
         cursor.execute("""
             INSERT INTO AttendanceLogs
                 (Id, EmployeeId, EmployeeName, ActionType, TimestampServer, DateStr, TimeStr, ConfidenceScore, DeviceId, Note)
             VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
-        """, f"LOG-{ts}-NOTE", body.employeeId, body.employeeName, 'หมายเหตุ',
+        """, f"LOG-{ts}-{eid}-NOTE", body.employeeId, body.employeeName, 'หมายเหตุ',
             f"{body.date} 00:00:00", body.date, '00:00:00', 'ADMIN', body.note)
 
     conn.commit()
