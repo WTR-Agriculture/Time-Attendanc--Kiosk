@@ -1076,7 +1076,7 @@ export default function App() {
   //  Render: OT
   // ============================================================
   const renderOT = () => (
-    <div className="flex flex-col gap-6 max-w-lg animate-fade-in">
+    <div className="flex flex-col gap-6 max-w-lg mx-auto animate-fade-in">
       <div>
         <h2 className="text-2xl font-bold text-[#222222]">บันทึก OT</h2>
         <p className="text-slate-400 text-sm mt-0.5">กรอก OT ย้อนหลังได้ — ข้อมูลเดิมจะถูกแทนที่</p>
