@@ -304,6 +304,16 @@ export async function deductAdvance(body) {
   return apiPost('/api/advances/deduct', body);
 }
 
+export async function updateWorkDays(periodId, employeeId, workDays) {
+  const res = await fetch(`${API_URL}/api/payroll/periods/${periodId}/items/${encodeURIComponent(employeeId)}/workdays`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ workDays }),
+  });
+  if (!res.ok) throw new Error(`API PUT error: ${res.status}`);
+  return res.json();
+}
+
 export async function createSpecialHourLog(body) {
   return apiPost('/api/special_hours', body);
 }

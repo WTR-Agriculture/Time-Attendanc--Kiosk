@@ -1048,6 +1048,50 @@ def set_advance_deduction(period_id: int, body: AdvanceDeductionBody):
     return {"success": True}
 
 # ============================================================
+#  PUT /api/payroll/periods/{id}/items/{employee_id}/workdays
+# ============================================================
+class UpdateWorkDaysBody(BaseModel):
+    workDays: float
+
+@app.put("/api/payroll/periods/{period_id}/items/{employee_id}/workdays")
+def update_work_days(period_id: int, employee_id: str, body: UpdateWorkDaysBody):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT ppi.LateDeduction, ppi.OTAmount, ppi.PieceRateTotal,
+               ppi.AdvanceDeduction, ppi.PaidStatus, e.Rate
+        FROM PayrollPeriodItems ppi
+        JOIN Employees e ON ppi.EmployeeId = e.EmployeeId
+        WHERE ppi.PeriodId = ? AND ppi.EmployeeId = ?
+    """, period_id, employee_id)
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="ไม่พบรายการ")
+    if row[4] == 'Paid':
+        conn.close()
+        raise HTTPException(status_code=400, detail="จ่ายแล้ว ไม่สามารถแก้ไขได้")
+    late_deduction = float(row[0])
+    ot_amount      = float(row[1])
+    piece_total    = float(row[2])
+    advance_deduct = float(row[3])
+    rate           = float(row[5])
+    new_base = round(body.workDays * rate, 2)
+    new_net  = round(new_base - late_deduction + ot_amount + piece_total - advance_deduct, 2)
+    cursor.execute("""
+        UPDATE PayrollPeriodItems SET WorkDays=?, BaseAmount=?, NetTotal=?
+        WHERE PeriodId=? AND EmployeeId=?
+    """, body.workDays, new_base, new_net, period_id, employee_id)
+    cursor.execute("""
+        UPDATE PayrollPeriods SET GrandTotal=(
+            SELECT SUM(NetTotal) FROM PayrollPeriodItems WHERE PeriodId=?
+        ) WHERE Id=?
+    """, period_id, period_id)
+    conn.commit()
+    conn.close()
+    return {"success": True, "workDays": body.workDays, "baseAmount": new_base, "netTotal": new_net}
+
+# ============================================================
 #  Special Hour Logs
 # ============================================================
 @app.post("/api/special_hours")

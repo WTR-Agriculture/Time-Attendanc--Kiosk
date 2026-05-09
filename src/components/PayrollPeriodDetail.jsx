@@ -31,6 +31,11 @@ const IconX = () => (
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
   </svg>
 );
+const IconPencil = () => (
+  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+  </svg>
+);
 const IconClock = () => (
   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -66,6 +71,11 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
   const [deductNote,   setDeductNote]   = useState('');
   const [deductSaving, setDeductSaving] = useState(false);
 
+  // edit workDays modal state
+  const [editDaysFor,   setEditDaysFor]   = useState(null);
+  const [editDaysVal,   setEditDaysVal]   = useState('');
+  const [editDaysSaving,setEditDaysSaving]= useState(false);
+
   // piece rate modal state
   const [addingFor, setAddingFor] = useState(null);
   const [fJobId,  setFJobId]  = useState('');
@@ -96,6 +106,22 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
       setJobs(jd.jobs || []);
       setCategories(cd.categories || []);
     } catch {}
+  };
+
+  const openEditDays = (item) => {
+    setEditDaysFor(item);
+    setEditDaysVal(String(item.workDays));
+  };
+
+  const handleSaveWorkDays = async () => {
+    if (!editDaysFor || editDaysVal === '') return;
+    setEditDaysSaving(true);
+    try {
+      await api.updateWorkDays(period.id, editDaysFor.employeeId, parseFloat(editDaysVal));
+      setEditDaysFor(null);
+      loadDetail();
+    } catch {}
+    setEditDaysSaving(false);
   };
 
   const openDeduct = (item) => {
@@ -570,6 +596,13 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
                 <div>
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className="font-bold text-[#222222]">{item.name}</p>
+                    {!itemPaid && (
+                      <button onClick={() => openEditDays(item)}
+                        title="แก้ไขวันทำงาน"
+                        className="text-slate-400 hover:text-[#7B8CFA] p-1 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer">
+                        <IconPencil />
+                      </button>
+                    )}
                     {itemPaid && (
                       <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
                         <IconCheck />จ่ายแล้ว{item.paymentMethod ? ` · ${item.paymentMethod}` : ''} {item.paidAt ? fmtDate(item.paidAt) : ''}
@@ -861,6 +894,40 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
           onConfirm={dialog.onConfirm}
           onCancel={() => setDialog(null)}
         />
+      )}
+
+      {/* ── Edit Work Days Modal ── */}
+      {editDaysFor && (
+        <Modal onClose={() => setEditDaysFor(null)}>
+          <h2 className="text-xl font-bold text-[#222222]">แก้ไขวันทำงาน</h2>
+          <p className="text-slate-400 text-sm -mt-2">{editDaysFor.name}</p>
+          <div className="bg-[#F8FAFC] border border-slate-200 rounded-2xl px-4 py-2.5 text-sm text-slate-600">
+            ปัจจุบัน {editDaysFor.workDays} วัน · {fmtB(editDaysFor.baseAmount)}
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-semibold text-slate-500">จำนวนวันทำงาน *</label>
+            <input type="number" min="0" step="0.5" value={editDaysVal}
+              onChange={e => setEditDaysVal(e.target.value)}
+              className={inputCls} />
+          </div>
+          {editDaysVal !== '' && (() => {
+            const empRate = employees?.find(e => e.employeeId === editDaysFor.employeeId)?.rate ?? 0;
+            const newBase = parseFloat(editDaysVal || 0) * empRate;
+            return empRate > 0 ? (
+              <div className="bg-[#7B8CFA]/8 border border-[#7B8CFA]/20 rounded-2xl px-4 py-2.5 text-sm text-[#7B8CFA]">
+                {editDaysVal} วัน × {fmtB(empRate)}/วัน → {fmtB(newBase)}
+              </div>
+            ) : null;
+          })()}
+          <div className="flex gap-3 pt-1">
+            <button onClick={() => setEditDaysFor(null)}
+              className="flex-1 bg-slate-100 text-slate-600 font-bold py-3 rounded-2xl cursor-pointer">ยกเลิก</button>
+            <button onClick={handleSaveWorkDays} disabled={editDaysVal === '' || editDaysSaving}
+              className="flex-1 bg-[#7B8CFA] disabled:opacity-40 text-white font-bold py-3 rounded-2xl cursor-pointer">
+              {editDaysSaving ? 'กำลังบันทึก...' : 'บันทึก'}
+            </button>
+          </div>
+        </Modal>
       )}
 
       {/* ── Deduct Advance Modal ── */}
