@@ -59,6 +59,8 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
   const [deleting,     setDeleting]     = useState(false);
   const [expanded, setExpanded] = useState({});
   const [dialog, setDialog] = useState(null);
+  const [empSearch,      setEmpSearch]      = useState('');
+  const [empStatusFilter, setEmpStatusFilter] = useState('');
 
   // piece rate modal state
   const [addingFor, setAddingFor] = useState(null);
@@ -497,9 +499,35 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
         </div>
       </div>
 
+      {/* ── Search + Filter ── */}
+      <div className="flex gap-2 flex-wrap">
+        <div className="relative flex-1 min-w-[160px]">
+          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-4.35-4.35M17 11A6 6 0 111 11a6 6 0 0116 0z" />
+          </svg>
+          <input value={empSearch} onChange={e => setEmpSearch(e.target.value)}
+            placeholder="ค้นหาชื่อพนักงาน..."
+            className="w-full bg-white border border-slate-200 rounded-2xl pl-9 pr-3 py-2.5 text-sm outline-none focus:border-[#7B8CFA]" />
+        </div>
+        <select value={empStatusFilter} onChange={e => setEmpStatusFilter(e.target.value)}
+          className="bg-white border border-slate-200 rounded-2xl px-3 py-2.5 text-sm outline-none focus:border-[#7B8CFA]">
+          <option value="">ทุกสถานะ</option>
+          <option value="Paid">จ่ายแล้ว</option>
+          <option value="Unpaid">ยังไม่จ่าย</option>
+          <option value="Deferred">เลื่อนงวดหน้า</option>
+        </select>
+      </div>
+
       {/* ── Employee cards ── */}
       <div className="flex flex-col gap-3">
-        {detail.items.map(item => {
+        {detail.items.filter(item => {
+          const matchSearch = !empSearch || item.name.toLowerCase().includes(empSearch.toLowerCase());
+          const matchStatus = !empStatusFilter ||
+            (empStatusFilter === 'Paid'     && item.paidStatus === 'Paid') ||
+            (empStatusFilter === 'Unpaid'   && item.paidStatus !== 'Paid' && !item.isDeferred) ||
+            (empStatusFilter === 'Deferred' && item.isDeferred && item.paidStatus !== 'Paid');
+          return matchSearch && matchStatus;
+        }).map(item => {
           const isOpen      = expanded[item.employeeId];
           const itemPaid    = item.paidStatus === 'Paid';
           const isDeferred  = item.isDeferred && !itemPaid;
