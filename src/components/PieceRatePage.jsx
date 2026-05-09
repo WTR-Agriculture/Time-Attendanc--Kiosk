@@ -245,12 +245,21 @@ export default function PieceRatePage({ employees }) {
     });
   };
 
-  // group jobs by category for display
+  // search + filter state
+  const [jobSearch,  setJobSearch]  = useState('');
+  const [jobCatFilter, setJobCatFilter] = useState('');
+
+  // group jobs by category for display (with search/filter)
+  const filteredJobs = jobs.filter(j => {
+    const matchSearch = !jobSearch || j.jobName.toLowerCase().includes(jobSearch.toLowerCase());
+    const matchCat    = !jobCatFilter || String(j.categoryId) === jobCatFilter;
+    return matchSearch && matchCat;
+  });
   const jobsByCategory = categories.map(cat => ({
     ...cat,
-    jobs: jobs.filter(j => j.categoryId === cat.id),
+    jobs: filteredJobs.filter(j => j.categoryId === cat.id),
   }));
-  const uncategorized = jobs.filter(j => !j.categoryId);
+  const uncategorized = filteredJobs.filter(j => !j.categoryId);
 
   return (
     <div className="flex flex-col gap-6">
@@ -479,6 +488,21 @@ export default function PieceRatePage({ employees }) {
                 className="bg-[#7B8CFA] text-white text-sm font-bold px-4 py-2 rounded-2xl cursor-pointer active:scale-95 transition-transform">
                 + เพิ่มรายการ
               </button>
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              <div className="relative flex-1 min-w-[160px]">
+                <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-4.35-4.35M17 11A6 6 0 111 11a6 6 0 0116 0z" />
+                </svg>
+                <input value={jobSearch} onChange={e => setJobSearch(e.target.value)}
+                  placeholder="ค้นหารายการ..."
+                  className="w-full bg-[#F8FAFC] border border-slate-200 rounded-2xl pl-9 pr-3 py-2 text-sm outline-none focus:border-[#7B8CFA]" />
+              </div>
+              <select value={jobCatFilter} onChange={e => setJobCatFilter(e.target.value)}
+                className="bg-[#F8FAFC] border border-slate-200 rounded-2xl px-3 py-2 text-sm outline-none focus:border-[#7B8CFA]">
+                <option value="">ทุกประเภท</option>
+                {categories.map(cat => <option key={cat.id} value={String(cat.id)}>{cat.name}</option>)}
+              </select>
             </div>
             {jobs.length === 0 ? (
               <p className="text-center text-slate-400 text-sm py-4">ยังไม่มีรายการงาน</p>
