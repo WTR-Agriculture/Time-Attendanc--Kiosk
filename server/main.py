@@ -1101,6 +1101,21 @@ def recalculate_period(period_id: int):
         ot_map[eid]["hours"]    += hrs
         ot_map[eid]["weighted"] += hrs * otr
 
+    # Special hour logs
+    sh_map = {}
+    try:
+        ids_list = list(unpaid_ids.keys())
+        cursor.execute(f"""
+            SELECT EmployeeId, SUM(Amount)
+            FROM SpecialHourLogs
+            WHERE EmployeeId IN ({','.join(['?']*len(ids_list))})
+              AND WorkDate BETWEEN ? AND ?
+            GROUP BY EmployeeId
+        """, *ids_list, start_date, end_date)
+        sh_map = {r[0]: float(r[1]) for r in cursor.fetchall()}
+    except Exception:
+        pass
+
     updated = 0
     for emp_id, kept in unpaid_ids.items():
         emp = emp_rates.get(emp_id)
@@ -1123,7 +1138,8 @@ def recalculate_period(period_id: int):
         ot_amount = round(hourly_rate * ot_entry["weighted"], 2)
         piece_total    = kept["pieceRateTotal"]
         advance_deduct = kept["advanceDeduction"]
-        new_net = round(base - late_deduction + ot_amount + piece_total - advance_deduct, 2)
+        special_hours  = sh_map.get(emp_id, 0.0)
+        new_net = round(base - late_deduction + ot_amount + piece_total - advance_deduct + special_hours, 2)
         cursor.execute("""
             UPDATE PayrollPeriodItems
             SET WorkDays=?, BaseAmount=?, LateDeduction=?, OTHours=?, OTAmount=?, NetTotal=?
