@@ -88,6 +88,14 @@ class CreateEmployeeBody(BaseModel):
     rate: float = 0
     rateType: str = "daily"  # 'daily' | 'hourly'
 
+class CreateSpecialHourLogBody(BaseModel):
+    employeeId: str
+    employeeName: str
+    workDate: str
+    hours: float
+    hourlyRate: float
+    note: Optional[str] = ""
+
 # ============================================================
 #  GET /api/employees
 # ============================================================
@@ -808,6 +816,32 @@ def get_payroll_period_detail(period_id: int):
         """, *emp_ids)
         balance_map = {r[0]: max(0.0, float(r[1])) for r in cursor.fetchall()}
 
+    # ดึง special hours ของงวดนี้ (date range)
+    sh_by_emp = {}
+    sh_detail_by_emp = {}
+    try:
+        if emp_ids:
+            cursor.execute(f"""
+                SELECT EmployeeId, Id, WorkDate, Hours, HourlyRate, Amount, Note
+                FROM SpecialHourLogs
+                WHERE EmployeeId IN ({','.join(['?']*len(emp_ids))})
+                  AND WorkDate BETWEEN ? AND ?
+                ORDER BY EmployeeId, WorkDate
+            """, *emp_ids, str(p[1]), str(p[2]))
+            for r in cursor.fetchall():
+                eid = r[0]
+                if eid not in sh_by_emp:
+                    sh_by_emp[eid] = {"hours": 0.0, "amount": 0.0}
+                    sh_detail_by_emp[eid] = []
+                sh_by_emp[eid]["hours"]  += float(r[3])
+                sh_by_emp[eid]["amount"] += float(r[5])
+                sh_detail_by_emp[eid].append({
+                    "id": r[1], "workDate": str(r[2]), "hours": float(r[3]),
+                    "hourlyRate": float(r[4]), "amount": float(r[5]), "note": r[6] or ""
+                })
+    except Exception:
+        pass
+
     conn.close()
 
     piece_by_emp = {}
@@ -824,6 +858,9 @@ def get_payroll_period_detail(period_id: int):
     for item in items:
         item["pieceLogs"]          = piece_by_emp.get(item["employeeId"], [])
         item["outstandingAdvance"] = balance_map.get(item["employeeId"], 0.0)
+        item["specialHoursTotal"]  = sh_by_emp.get(item["employeeId"], {}).get("amount", 0.0)
+        item["specialHoursHours"]  = sh_by_emp.get(item["employeeId"], {}).get("hours", 0.0)
+        item["specialHoursLogs"]   = sh_detail_by_emp.get(item["employeeId"], [])
 
     return {"id": p[0], "startDate": str(p[1]), "endDate": str(p[2]),
             "grandTotal": float(p[3]), "status": p[4], "paidAt": str(p[5]) if p[5] else None, "items": items}
@@ -1006,6 +1043,57 @@ def set_advance_deduction(period_id: int, body: AdvanceDeductionBody):
             SELECT SUM(NetTotal) FROM PayrollPeriodItems WHERE PeriodId = ?
         ) WHERE Id = ?
     """, period_id, period_id)
+    conn.commit()
+    conn.close()
+    return {"success": True}
+
+# ============================================================
+#  Special Hour Logs
+# ============================================================
+@app.post("/api/special_hours")
+def create_special_hour_log(body: CreateSpecialHourLogBody):
+    amount = round(body.hours * body.hourlyRate, 2)
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO SpecialHourLogs (EmployeeId, EmployeeName, WorkDate, Hours, HourlyRate, Amount, Note)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, body.employeeId, body.employeeName, body.workDate,
+        body.hours, body.hourlyRate, amount, body.note or '')
+    conn.commit()
+    conn.close()
+    return {"success": True, "amount": amount}
+
+@app.get("/api/special_hours")
+def get_special_hours(employeeId: Optional[str] = None):
+    conn = get_db()
+    cursor = conn.cursor()
+    if employeeId:
+        cursor.execute("""
+            SELECT Id, EmployeeId, EmployeeName, WorkDate, Hours, HourlyRate, Amount, Note
+            FROM SpecialHourLogs WHERE EmployeeId = ? ORDER BY WorkDate DESC
+        """, employeeId)
+    else:
+        cursor.execute("""
+            SELECT Id, EmployeeId, EmployeeName, WorkDate, Hours, HourlyRate, Amount, Note
+            FROM SpecialHourLogs ORDER BY WorkDate DESC
+        """)
+    rows = cursor.fetchall()
+    conn.close()
+    return {"logs": [
+        {"id": r[0], "employeeId": r[1], "employeeName": r[2], "workDate": str(r[3]),
+         "hours": float(r[4]), "hourlyRate": float(r[5]), "amount": float(r[6]), "note": r[7] or ""}
+        for r in rows
+    ]}
+
+@app.delete("/api/special_hours/{log_id}")
+def delete_special_hour_log(log_id: int):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM SpecialHourLogs WHERE Id=?", log_id)
+    if cursor.rowcount == 0:
+        conn.close()
+        raise HTTPException(status_code=404, detail="ไม่พบรายการ")
     conn.commit()
     conn.close()
     return {"success": True}

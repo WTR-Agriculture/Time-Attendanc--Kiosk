@@ -631,6 +631,11 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
                     หักเบิก -{fmtB(item.advanceDeduction)}
                   </span>
                 )}
+                {item.specialHoursTotal > 0 && (
+                  <span className="bg-violet-50 text-violet-600 rounded-xl px-3 py-1.5">
+                    ชม.พิเศษ {item.specialHoursHours} ชม. +{fmtB(item.specialHoursTotal)}
+                  </span>
+                )}
                 {item.outstandingAdvance > 0 && !itemPaid && (
                   <div className="flex items-center gap-2">
                     <span className="bg-orange-50 text-orange-600 rounded-xl px-3 py-1.5">

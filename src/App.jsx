@@ -320,6 +320,14 @@ export default function App() {
   const [otSuccess,setOtSuccess]= useState(null);
   const [otError,  setOtError]  = useState(null);
 
+  // --- Special Hours modal ---
+  const [showSH,   setShowSH]   = useState(false);
+  const [shEmp,    setShEmp]    = useState(null);
+  const [shDate,   setShDate]   = useState('');
+  const [shHours,  setShHours]  = useState('');
+  const [shNote,   setShNote]   = useState('');
+  const [shSaving, setShSaving] = useState(false);
+
   // --- Payroll tab ---
   const [payPeriodStart,   setPayPeriodStart]   = useState('');
   const [payPeriodEnd,     setPayPeriodEnd]     = useState('');
@@ -873,6 +881,23 @@ export default function App() {
     setTimeout(() => setAttSavedAll(false), 2000);
   };
 
+  const handleSaveSpecialHour = async () => {
+    if (!shEmp || !shHours || !shDate) return;
+    setShSaving(true);
+    try {
+      await api.createSpecialHourLog({
+        employeeId:   shEmp.employeeId,
+        employeeName: shEmp.name,
+        workDate:     shDate,
+        hours:        parseFloat(shHours),
+        hourlyRate:   shEmp.rate / 8,
+        note:         shNote,
+      });
+      setShowSH(false);
+    } catch {}
+    setShSaving(false);
+  };
+
   // ============================================================
   //  Render: Attendance Log
   // ============================================================
@@ -890,6 +915,10 @@ export default function App() {
             className={`font-bold px-5 py-2.5 rounded-2xl text-sm cursor-pointer disabled:opacity-40 active:scale-95 transition-all
               ${attSavedAll ? 'bg-emerald-500 text-white' : 'bg-[#7B8CFA] text-white'}`}>
             {attSavingAll ? 'กำลังบันทึก...' : attSavedAll ? <span className="flex items-center gap-1.5"><IconCheck />บันทึกแล้ว</span> : 'บันทึกทั้งหมด'}
+          </button>
+          <button onClick={() => { setShEmp(null); setShDate(attDate); setShHours(''); setShNote(''); setShowSH(true); }}
+            className="bg-violet-100 text-violet-700 font-bold px-4 py-2.5 rounded-2xl text-sm cursor-pointer active:scale-95 transition-all whitespace-nowrap">
+            + ชม.พิเศษ
           </button>
         </div>
       </div>
@@ -1411,5 +1440,63 @@ export default function App() {
   // ============================================================
   //  Root render
   // ============================================================
-  return isAdmin ? renderAdminLayout() : renderLogin();
+  return isAdmin ? (
+    <>
+      {renderAdminLayout()}
+      {showSH && createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/40 px-0 sm:px-4"
+          onClick={() => setShowSH(false)}>
+          <div className="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl shadow-xl p-6 flex flex-col gap-4 max-h-[90vh] overflow-y-auto"
+            onClick={e => e.stopPropagation()}>
+            <h2 className="text-xl font-bold text-[#222222]">บันทึกชั่วโมงพิเศษ</h2>
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-semibold text-slate-500">พนักงาน *</label>
+                <select value={shEmp?.employeeId || ''}
+                  onChange={e => setShEmp(activeEmployees.find(emp => emp.employeeId === e.target.value) || null)}
+                  className="bg-[#F8FAFC] border border-slate-200 rounded-2xl px-4 py-3 text-base outline-none focus:border-[#7B8CFA] w-full">
+                  <option value="">-- เลือกพนักงาน --</option>
+                  {activeEmployees.map(emp => (
+                    <option key={emp.employeeId} value={emp.employeeId}>{emp.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-semibold text-slate-500">วันที่ *</label>
+                <DateInput value={shDate} onChange={e => setShDate(e.target.value)}
+                  className="bg-[#F8FAFC] border border-slate-200 rounded-2xl px-4 py-3 text-base outline-none focus:border-[#7B8CFA] w-full" />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-semibold text-slate-500">จำนวนชั่วโมง *</label>
+                <input type="number" min="0" step="0.5" value={shHours}
+                  onChange={e => setShHours(e.target.value)}
+                  placeholder="0"
+                  className="bg-[#F8FAFC] border border-slate-200 rounded-2xl px-4 py-3 text-base outline-none focus:border-[#7B8CFA] w-full" />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-semibold text-slate-500">หมายเหตุ</label>
+                <input type="text" value={shNote} onChange={e => setShNote(e.target.value)}
+                  placeholder="ไม่บังคับ"
+                  className="bg-[#F8FAFC] border border-slate-200 rounded-2xl px-4 py-3 text-base outline-none focus:border-[#7B8CFA] w-full" />
+              </div>
+              {shEmp && parseFloat(shHours) > 0 && (
+                <div className="bg-violet-50 border border-violet-100 rounded-2xl px-4 py-2.5 text-sm text-violet-700">
+                  อัตรา ฿{(shEmp.rate / 8).toFixed(2)}/ชม. → รวม ฿{(parseFloat(shHours) * (shEmp.rate / 8)).toFixed(2)}
+                </div>
+              )}
+            </div>
+            <div className="flex gap-3 pt-1">
+              <button onClick={() => setShowSH(false)}
+                className="flex-1 bg-slate-100 text-slate-600 font-bold py-3 rounded-2xl cursor-pointer">ยกเลิก</button>
+              <button onClick={handleSaveSpecialHour} disabled={!shEmp || !shHours || !shDate || shSaving}
+                className="flex-1 bg-violet-500 disabled:opacity-40 text-white font-bold py-3 rounded-2xl cursor-pointer">
+                {shSaving ? 'กำลังบันทึก...' : 'บันทึก'}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+    </>
+  ) : renderLogin();
 }

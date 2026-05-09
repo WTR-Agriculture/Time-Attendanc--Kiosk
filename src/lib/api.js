@@ -304,6 +304,16 @@ export async function deductAdvance(body) {
   return apiPost('/api/advances/deduct', body);
 }
 
+export async function createSpecialHourLog(body) {
+  return apiPost('/api/special_hours', body);
+}
+
+export async function deleteSpecialHourLog(id) {
+  const res = await fetch(`${API_URL}/api/special_hours/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`API DELETE error: ${res.status}`);
+  return res.json();
+}
+
 export async function setAdvanceDeduction(periodId, employeeId, amount) {
   const res = await fetch(`${API_URL}/api/payroll/periods/${periodId}/advance`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json' },
