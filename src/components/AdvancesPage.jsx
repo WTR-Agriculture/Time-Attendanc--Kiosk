@@ -38,6 +38,12 @@ export default function AdvancesPage() {
   const [addNote, setAddNote]   = useState('');
   const [addSaving, setAddSaving] = useState(false);
 
+  // Deduct modal
+  const [deductEmp,    setDeductEmp]    = useState(null);
+  const [deductAmt,    setDeductAmt]    = useState('');
+  const [deductNote,   setDeductNote]   = useState('');
+  const [deductSaving, setDeductSaving] = useState(false);
+
   // History modal
   const [histEmp, setHistEmp]       = useState(null);
   const [history, setHistory]       = useState([]);
@@ -51,6 +57,28 @@ export default function AdvancesPage() {
     setLoading(true);
     try { const d = await api.getAdvances(); setEmployees(d.employees); } catch {}
     setLoading(false);
+  };
+
+  const openDeduct = (emp) => {
+    setDeductEmp(emp);
+    setDeductAmt('');
+    setDeductNote('');
+  };
+
+  const handleDeduct = async () => {
+    if (!deductEmp || !deductAmt) return;
+    setDeductSaving(true);
+    try {
+      await api.deductAdvance({
+        employeeId: deductEmp.employeeId,
+        employeeName: deductEmp.name,
+        amount: parseFloat(deductAmt),
+        note: deductNote,
+      });
+      setDeductEmp(null);
+      loadData();
+    } catch {}
+    setDeductSaving(false);
   };
 
   const openAdd = (emp) => {
@@ -158,6 +186,12 @@ export default function AdvancesPage() {
                   className="text-slate-400 hover:text-[#7B8CFA] p-2 rounded-xl hover:bg-slate-50 cursor-pointer transition-colors text-xs font-medium">
                   ประวัติ
                 </button>
+                {emp.balance > 0 && (
+                  <button onClick={() => openDeduct(emp)}
+                    className="bg-amber-500 text-white text-xs font-bold px-3 py-2 rounded-2xl cursor-pointer active:scale-95 transition-transform">
+                    หักเบิก
+                  </button>
+                )}
                 <button onClick={() => openAdd(emp)}
                   className="bg-[#7B8CFA] text-white text-xs font-bold px-3 py-2 rounded-2xl cursor-pointer active:scale-95 transition-transform">
                   + เบิก
@@ -166,6 +200,38 @@ export default function AdvancesPage() {
             </div>
           ))}
         </div>
+      )}
+
+      {/* ── Deduct Modal ── */}
+      {deductEmp && (
+        <Modal onClose={() => setDeductEmp(null)}>
+          <h2 className="text-xl font-bold text-[#222222]">หักเบิก</h2>
+          <p className="text-slate-400 text-sm -mt-2">{deductEmp.name}</p>
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-2.5 text-sm text-amber-700">
+            ยอดค้างอยู่ {formatMoney(deductEmp.balance)}
+          </div>
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-semibold text-slate-500">จำนวนที่จะหัก (บาท) *</label>
+              <input type="number" min="0" max={deductEmp.balance} value={deductAmt}
+                onChange={e => setDeductAmt(e.target.value)}
+                placeholder={String(deductEmp.balance)} className={inputCls} />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-semibold text-slate-500">หมายเหตุ</label>
+              <input type="text" value={deductNote} onChange={e => setDeductNote(e.target.value)}
+                placeholder="ไม่บังคับ" className={inputCls} />
+            </div>
+          </div>
+          <div className="flex gap-3 pt-1">
+            <button onClick={() => setDeductEmp(null)}
+              className="flex-1 bg-slate-100 text-slate-600 font-bold py-3 rounded-2xl cursor-pointer">ยกเลิก</button>
+            <button onClick={handleDeduct} disabled={!deductAmt || deductSaving}
+              className="flex-1 bg-amber-500 disabled:opacity-40 text-white font-bold py-3 rounded-2xl cursor-pointer">
+              {deductSaving ? 'กำลังบันทึก...' : 'ยืนยันหัก'}
+            </button>
+          </div>
+        </Modal>
       )}
 
       {/* ── Add Advance Modal ── */}

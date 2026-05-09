@@ -59,8 +59,12 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
   const [deleting,     setDeleting]     = useState(false);
   const [expanded, setExpanded] = useState({});
   const [dialog, setDialog] = useState(null);
-  const [empSearch,      setEmpSearch]      = useState('');
+  const [empSearch,       setEmpSearch]       = useState('');
   const [empStatusFilter, setEmpStatusFilter] = useState('');
+  const [deductFor,    setDeductFor]    = useState(null);
+  const [deductAmt,    setDeductAmt]    = useState('');
+  const [deductNote,   setDeductNote]   = useState('');
+  const [deductSaving, setDeductSaving] = useState(false);
 
   // piece rate modal state
   const [addingFor, setAddingFor] = useState(null);
@@ -92,6 +96,29 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
       setJobs(jd.jobs || []);
       setCategories(cd.categories || []);
     } catch {}
+  };
+
+  const openDeduct = (item) => {
+    setDeductFor(item);
+    setDeductAmt('');
+    setDeductNote('');
+  };
+
+  const handleDeductAdvance = async () => {
+    if (!deductFor || !deductAmt) return;
+    setDeductSaving(true);
+    try {
+      await api.deductAdvance({
+        employeeId:   deductFor.employeeId,
+        employeeName: deductFor.name,
+        amount:       parseFloat(deductAmt),
+        note:         deductNote,
+        periodId:     period.id,
+      });
+      setDeductFor(null);
+      loadDetail();
+    } catch {}
+    setDeductSaving(false);
   };
 
   // ── Piece rate modal ──
@@ -604,6 +631,17 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
                     หักเบิก -{fmtB(item.advanceDeduction)}
                   </span>
                 )}
+                {item.outstandingAdvance > 0 && !itemPaid && (
+                  <div className="flex items-center gap-2">
+                    <span className="bg-orange-50 text-orange-600 rounded-xl px-3 py-1.5">
+                      ค้างเบิก {fmtB(item.outstandingAdvance)}
+                    </span>
+                    <button onClick={() => openDeduct(item)}
+                      className="bg-orange-500 text-white text-xs font-bold px-3 py-1.5 rounded-xl cursor-pointer active:scale-95 transition-transform">
+                      หักเบิก
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Piece rate section */}
@@ -818,6 +856,39 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
           onConfirm={dialog.onConfirm}
           onCancel={() => setDialog(null)}
         />
+      )}
+
+      {/* ── Deduct Advance Modal ── */}
+      {deductFor && (
+        <Modal onClose={() => setDeductFor(null)}>
+          <h2 className="text-xl font-bold text-[#222222]">หักเบิก</h2>
+          <p className="text-slate-400 text-sm -mt-2">{deductFor.name}</p>
+          <div className="bg-orange-50 border border-orange-200 rounded-2xl px-4 py-2.5 text-sm text-orange-700">
+            ยอดค้างเบิกทั้งหมด {fmtB(deductFor.outstandingAdvance)}
+          </div>
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-semibold text-slate-500">จำนวนที่จะหัก (บาท) *</label>
+              <input type="number" min="0" value={deductAmt}
+                onChange={e => setDeductAmt(e.target.value)}
+                placeholder={String(deductFor.outstandingAdvance)}
+                className={inputCls} />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-semibold text-slate-500">หมายเหตุ</label>
+              <input type="text" value={deductNote} onChange={e => setDeductNote(e.target.value)}
+                placeholder="ไม่บังคับ" className={inputCls} />
+            </div>
+          </div>
+          <div className="flex gap-3 pt-1">
+            <button onClick={() => setDeductFor(null)}
+              className="flex-1 bg-slate-100 text-slate-600 font-bold py-3 rounded-2xl cursor-pointer">ยกเลิก</button>
+            <button onClick={handleDeductAdvance} disabled={!deductAmt || deductSaving}
+              className="flex-1 bg-orange-500 disabled:opacity-40 text-white font-bold py-3 rounded-2xl cursor-pointer">
+              {deductSaving ? 'กำลังบันทึก...' : 'ยืนยันหัก'}
+            </button>
+          </div>
+        </Modal>
       )}
     </div>
   );

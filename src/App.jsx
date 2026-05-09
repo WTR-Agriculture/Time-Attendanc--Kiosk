@@ -795,6 +795,13 @@ export default function App() {
     return diff >= 16 ? diff - 15 : 0;
   };
 
+  const calcEarlyLeaveMins = (outTime) => {
+    if (!outTime) return 0;
+    const toMins = t => t.split(':').reduce((h, m, i) => i === 0 ? h + Number(m) * 60 : h + Number(m), 0);
+    const diff = 17 * 60 - toMins(outTime);
+    return diff > 0 ? diff : 0;
+  };
+
   // Always use scheduled start for pay calculation (handles grace period + late deduction)
   const calcScheduledStart = (inTime) => {
     if (!inTime) return inTime;
@@ -921,14 +928,15 @@ export default function App() {
         /* ── Mobile: card per employee ── */
         <div className="flex flex-col gap-3">
           {filteredAtt.map((emp) => {
-            const s          = attCardState[emp.employeeId] || {};
-            const lateMins    = calcLateMins(s.inTime);
-            const lateDeduct  = lateMins > 0 ? lateMins * (emp.rate / WORK_MINS) : 0;
-            const netHoursN   = calcNetHoursNum(s.inTime, s.outTime);
-            const paidHrsN    = calcNetHoursNum(calcScheduledStart(s.inTime), capOutTime(s.outTime));
-            const cappedHrs   = paidHrsN !== null ? Math.min(paidHrsN, 8) : null;
-            const otAmt       = emp.otHours > 0 ? emp.otHours * (emp.rate / 8) * emp.otRate : 0;
-            const todayWage   = emp.rateType === 'daily'
+            const s              = attCardState[emp.employeeId] || {};
+            const lateMins       = calcLateMins(s.inTime);
+            const earlyLeaveMins = calcEarlyLeaveMins(s.outTime);
+            const lateDeduct     = lateMins > 0 ? lateMins * (emp.rate / WORK_MINS) : 0;
+            const netHoursN      = calcNetHoursNum(s.inTime, s.outTime);
+            const paidHrsN       = calcNetHoursNum(calcScheduledStart(s.inTime), capOutTime(s.outTime));
+            const cappedHrs      = paidHrsN !== null ? Math.min(paidHrsN, 8) : null;
+            const otAmt          = emp.otHours > 0 ? emp.otHours * (emp.rate / 8) * emp.otRate : 0;
+            const todayWage      = emp.rateType === 'daily'
               ? (cappedHrs !== null ? cappedHrs * (emp.rate / 8) - lateDeduct + otAmt : null)
               : (netHoursN ? netHoursN * emp.rate + otAmt : null);
             const isSaving   = attSavingId === emp.employeeId;
@@ -956,9 +964,10 @@ export default function App() {
                   </div>
                 </div>
                 {/* Stats row */}
-                <div className="flex items-center gap-3 text-xs">
+                <div className="flex items-center gap-3 text-xs flex-wrap">
                   <span className="text-slate-400">ชม.สุทธิ <span className="font-bold text-[#7B8CFA]">{cappedHrs !== null ? cappedHrs.toFixed(1) : '—'}</span></span>
                   {lateMins > 0 && <span className="text-red-500 font-medium">สาย {lateMins} นาที</span>}
+                  {earlyLeaveMins > 0 && <span className="text-orange-500 font-medium">กลับก่อน {earlyLeaveMins} นาที</span>}
                   {emp.otHours > 0 && <span className="text-emerald-600 font-medium">OT {emp.otHours} ชม.</span>}
                   {todayWage != null && <span className="ml-auto font-bold text-emerald-600">฿{todayWage.toFixed(0)}</span>}
                 </div>

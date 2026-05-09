@@ -300,6 +300,10 @@ export async function createAdvance(body) {
   return apiPost('/api/advances', body);
 }
 
+export async function deductAdvance(body) {
+  return apiPost('/api/advances/deduct', body);
+}
+
 export async function setAdvanceDeduction(periodId, employeeId, amount) {
   const res = await fetch(`${API_URL}/api/payroll/periods/${periodId}/advance`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json' },

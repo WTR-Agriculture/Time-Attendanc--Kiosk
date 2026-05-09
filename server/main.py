@@ -794,6 +794,20 @@ def get_payroll_period_detail(period_id: int):
         ORDER BY pl.EmployeeId, pl.Id
     """, period_id)
     piece_rows = cursor.fetchall()
+
+    # ดึงยอดค้างเบิกรวม (ไม่จำกัดช่วงงวด)
+    emp_ids = [item["employeeId"] for item in items]
+    balance_map = {}
+    if emp_ids:
+        cursor.execute(f"""
+            SELECT EmployeeId,
+                   SUM(CASE WHEN Type='เบิก' THEN Amount ELSE -Amount END)
+            FROM WageAdvances
+            WHERE EmployeeId IN ({','.join(['?']*len(emp_ids))})
+            GROUP BY EmployeeId
+        """, *emp_ids)
+        balance_map = {r[0]: max(0.0, float(r[1])) for r in cursor.fetchall()}
+
     conn.close()
 
     piece_by_emp = {}
@@ -808,7 +822,8 @@ def get_payroll_period_detail(period_id: int):
         })
 
     for item in items:
-        item["pieceLogs"] = piece_by_emp.get(item["employeeId"], [])
+        item["pieceLogs"]          = piece_by_emp.get(item["employeeId"], [])
+        item["outstandingAdvance"] = balance_map.get(item["employeeId"], 0.0)
 
     return {"id": p[0], "startDate": str(p[1]), "endDate": str(p[2]),
             "grandTotal": float(p[3]), "status": p[4], "paidAt": str(p[5]) if p[5] else None, "items": items}
@@ -1401,6 +1416,33 @@ class WageAdvanceBody(BaseModel):
     tranDate:     str
     amount:       float
     note:         str = ""
+
+class DeductAdvanceBody(BaseModel):
+    employeeId:   str
+    employeeName: str
+    amount:       float
+    note:         str = ""
+    periodId:     Optional[int] = None
+
+@app.post("/api/advances/deduct")
+def deduct_advance(body: DeductAdvanceBody):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO WageAdvances (EmployeeId, EmployeeName, TranDate, Type, Amount, Note, PeriodId)
+        VALUES (?, ?, CAST(GETDATE() AS DATE), 'หัก', ?, ?, ?)
+    """, body.employeeId, body.employeeName, body.amount, body.note or 'หักเบิก', body.periodId)
+    if body.periodId:
+        cursor.execute("""
+            UPDATE PayrollPeriodItems
+            SET AdvanceDeduction = AdvanceDeduction + ?,
+                NetTotal = NetTotal - ?
+            WHERE PeriodId = ? AND EmployeeId = ?
+        """, body.amount, body.amount, body.periodId, body.employeeId)
+        recalc_period_status(cursor, body.periodId)
+    conn.commit()
+    conn.close()
+    return {"success": True}
 
 @app.post("/api/advances")
 def create_advance(body: WageAdvanceBody):
