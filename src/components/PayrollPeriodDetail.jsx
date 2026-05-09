@@ -61,7 +61,8 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
   const [payingId,     setPayingId]     = useState(null);
   const [payMethodFor, setPayMethodFor] = useState(null);
   const [deferringId,  setDeferringId]  = useState(null);
-  const [deleting,     setDeleting]     = useState(false);
+  const [deleting,       setDeleting]       = useState(false);
+  const [recalculating,  setRecalculating]  = useState(false);
   const [expanded, setExpanded] = useState({});
   const [dialog, setDialog] = useState(null);
   const [empSearch,       setEmpSearch]       = useState('');
@@ -106,6 +107,12 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
       setJobs(jd.jobs || []);
       setCategories(cd.categories || []);
     } catch {}
+  };
+
+  const handleRecalculate = async () => {
+    setRecalculating(true);
+    try { await api.recalculatePeriod(period.id); await loadDetail(); } catch {}
+    setRecalculating(false);
   };
 
   const openEditDays = (item) => {
@@ -516,6 +523,13 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
             <p className="text-2xl font-bold text-[#7B8CFA]">{fmtB(detail.grandTotal)}</p>
           </div>
           <div className="flex gap-2 flex-wrap">
+            <button onClick={handleRecalculate} disabled={recalculating}
+              className="bg-sky-50 border border-sky-200 text-sky-600 text-xs font-bold px-3 py-2 rounded-xl cursor-pointer hover:bg-sky-100 transition-colors flex items-center gap-1.5 disabled:opacity-40">
+              <svg className={`w-3.5 h-3.5 ${recalculating ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              {recalculating ? 'กำลังอัปเดต...' : 'อัปเดตข้อมูล'}
+            </button>
             {periodStatus === 'Unpaid' ? (
               <button onClick={handleDelete} disabled={deleting}
                 className="bg-red-50 border border-red-200 text-red-600 text-xs font-bold px-3 py-2 rounded-xl cursor-pointer hover:bg-red-100 transition-colors flex items-center gap-1.5 disabled:opacity-40">

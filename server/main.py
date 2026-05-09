@@ -1048,6 +1048,99 @@ def set_advance_deduction(period_id: int, body: AdvanceDeductionBody):
     return {"success": True}
 
 # ============================================================
+#  PUT /api/payroll/periods/{id}/recalculate
+#  อัปเดตข้อมูลล่าสุดสำหรับคนที่ยังไม่จ่าย
+# ============================================================
+@app.put("/api/payroll/periods/{period_id}/recalculate")
+def recalculate_period(period_id: int):
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT StartDate, EndDate FROM PayrollPeriods WHERE Id=?", period_id)
+    p = cursor.fetchone()
+    if not p:
+        conn.close()
+        raise HTTPException(status_code=404, detail="ไม่พบงวดนี้")
+    start_date, end_date = str(p[0]), str(p[1])
+
+    # โหลด items ที่ยังไม่จ่าย
+    cursor.execute("""
+        SELECT EmployeeId, PieceRateTotal, AdvanceDeduction
+        FROM PayrollPeriodItems
+        WHERE PeriodId=? AND ISNULL(PaidStatus,'Unpaid') != 'Paid'
+    """, period_id)
+    unpaid_rows = cursor.fetchall()
+    if not unpaid_rows:
+        conn.close()
+        return {"success": True, "updated": 0}
+    unpaid_ids = {r[0]: {"pieceRateTotal": float(r[1]), "advanceDeduction": float(r[2])} for r in unpaid_rows}
+
+    # โหลด employee rate
+    cursor.execute("SELECT EmployeeId, Rate, RateType FROM Employees WHERE IsActive=1")
+    emp_rates = {r[0]: {"rate": float(r[1]), "rateType": r[2]} for r in cursor.fetchall()}
+
+    # attendance logs
+    cursor.execute("""
+        SELECT EmployeeId, EmployeeName, ActionType, DateStr, TimeStr
+        FROM AttendanceLogs
+        WHERE CAST(DateStr AS DATE) BETWEEN ? AND ?
+        ORDER BY EmployeeId, DateStr, TimeStr
+    """, start_date, end_date)
+    daily_logs = group_logs_to_daily(cursor.fetchall())
+
+    # OT logs
+    cursor.execute("""
+        SELECT EmployeeId, Hours, OTRate FROM OTLogs
+        WHERE DateWork BETWEEN ? AND ?
+    """, start_date, end_date)
+    ot_map = {}
+    for r in cursor.fetchall():
+        eid, hrs, otr = r[0], float(r[1]), float(r[2])
+        if eid not in ot_map:
+            ot_map[eid] = {"hours": 0, "weighted": 0}
+        ot_map[eid]["hours"]    += hrs
+        ot_map[eid]["weighted"] += hrs * otr
+
+    updated = 0
+    for emp_id, kept in unpaid_ids.items():
+        emp = emp_rates.get(emp_id)
+        if not emp:
+            continue
+        rate, rate_type = emp["rate"], emp["rateType"]
+        hourly_rate = rate / 8
+        emp_daily = [d for d in daily_logs if d["employeeId"] == emp_id]
+        work_days = len([d for d in emp_daily if d["workedHours"] > 0])
+        if rate_type == "daily":
+            base = round(sum(min(d["paidHours"], 8) * hourly_rate for d in emp_daily if d["workedHours"] > 0), 2)
+        else:
+            base = round(sum(d["workedHours"] * rate for d in emp_daily if d["workedHours"] > 0), 2)
+        late_deduction = 0
+        for d in emp_daily:
+            if d.get("lateMins", 0) > 0:
+                late_deduction += round(hourly_rate / 60 * d["lateMins"], 2)
+        ot_entry  = ot_map.get(emp_id, {"hours": 0, "weighted": 0})
+        ot_hours  = ot_entry["hours"]
+        ot_amount = round(hourly_rate * ot_entry["weighted"], 2)
+        piece_total    = kept["pieceRateTotal"]
+        advance_deduct = kept["advanceDeduction"]
+        new_net = round(base - late_deduction + ot_amount + piece_total - advance_deduct, 2)
+        cursor.execute("""
+            UPDATE PayrollPeriodItems
+            SET WorkDays=?, BaseAmount=?, LateDeduction=?, OTHours=?, OTAmount=?, NetTotal=?
+            WHERE PeriodId=? AND EmployeeId=?
+        """, work_days, base, late_deduction, ot_hours, ot_amount, new_net, period_id, emp_id)
+        updated += 1
+
+    cursor.execute("""
+        UPDATE PayrollPeriods SET GrandTotal=(
+            SELECT SUM(NetTotal) FROM PayrollPeriodItems WHERE PeriodId=?
+        ) WHERE Id=?
+    """, period_id, period_id)
+    conn.commit()
+    conn.close()
+    return {"success": True, "updated": updated}
+
+# ============================================================
 #  PUT /api/payroll/periods/{id}/items/{employee_id}/workdays
 # ============================================================
 class UpdateWorkDaysBody(BaseModel):

@@ -304,6 +304,12 @@ export async function deductAdvance(body) {
   return apiPost('/api/advances/deduct', body);
 }
 
+export async function recalculatePeriod(periodId) {
+  const res = await fetch(`${API_URL}/api/payroll/periods/${periodId}/recalculate`, { method: 'PUT' });
+  if (!res.ok) throw new Error(`API PUT error: ${res.status}`);
+  return res.json();
+}
+
 export async function updateWorkDays(periodId, employeeId, workDays) {
   const res = await fetch(`${API_URL}/api/payroll/periods/${periodId}/items/${encodeURIComponent(employeeId)}/workdays`, {
     method: 'PUT',
