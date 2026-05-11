@@ -1065,7 +1065,7 @@ def recalculate_period(period_id: int):
 
     # โหลด items ที่ยังไม่จ่าย
     cursor.execute("""
-        SELECT EmployeeId, PieceRateTotal, AdvanceDeduction
+        SELECT EmployeeId, PieceRateTotal, AdvanceDeduction, ISNULL(WorkDaysOverride,0), WorkDays
         FROM PayrollPeriodItems
         WHERE PeriodId=? AND ISNULL(PaidStatus,'Unpaid') != 'Paid'
     """, period_id)
@@ -1073,7 +1073,8 @@ def recalculate_period(period_id: int):
     if not unpaid_rows:
         conn.close()
         return {"success": True, "updated": 0}
-    unpaid_ids = {r[0]: {"pieceRateTotal": float(r[1]), "advanceDeduction": float(r[2])} for r in unpaid_rows}
+    unpaid_ids = {r[0]: {"pieceRateTotal": float(r[1]), "advanceDeduction": float(r[2]),
+                          "workDaysOverride": bool(r[3]), "overrideWorkDays": float(r[4])} for r in unpaid_rows}
 
     # โหลด employee rate
     cursor.execute("SELECT EmployeeId, Rate, RateType FROM Employees WHERE IsActive=1")
@@ -1124,11 +1125,18 @@ def recalculate_period(period_id: int):
         rate, rate_type = emp["rate"], emp["rateType"]
         hourly_rate = rate / 8
         emp_daily = [d for d in daily_logs if d["employeeId"] == emp_id]
-        work_days = len([d for d in emp_daily if d["workedHours"] > 0])
-        if rate_type == "daily":
-            base = round(sum(min(d["paidHours"], 8) * hourly_rate for d in emp_daily if d["workedHours"] > 0), 2)
+        if kept["workDaysOverride"]:
+            work_days = kept["overrideWorkDays"]
+            if rate_type == "daily":
+                base = round(work_days * rate, 2)
+            else:
+                base = round(work_days * rate, 2)
         else:
-            base = round(sum(d["workedHours"] * rate for d in emp_daily if d["workedHours"] > 0), 2)
+            work_days = len([d for d in emp_daily if d["workedHours"] > 0])
+            if rate_type == "daily":
+                base = round(sum(min(d["paidHours"], 8) * hourly_rate for d in emp_daily if d["workedHours"] > 0), 2)
+            else:
+                base = round(sum(d["workedHours"] * rate for d in emp_daily if d["workedHours"] > 0), 2)
         late_deduction = 0
         for d in emp_daily:
             if d.get("lateMins", 0) > 0:
@@ -1188,7 +1196,7 @@ def update_work_days(period_id: int, employee_id: str, body: UpdateWorkDaysBody)
     new_base = round(body.workDays * rate, 2)
     new_net  = round(new_base - late_deduction + ot_amount + piece_total - advance_deduct, 2)
     cursor.execute("""
-        UPDATE PayrollPeriodItems SET WorkDays=?, BaseAmount=?, NetTotal=?
+        UPDATE PayrollPeriodItems SET WorkDays=?, BaseAmount=?, NetTotal=?, WorkDaysOverride=1
         WHERE PeriodId=? AND EmployeeId=?
     """, body.workDays, new_base, new_net, period_id, employee_id)
     cursor.execute("""
