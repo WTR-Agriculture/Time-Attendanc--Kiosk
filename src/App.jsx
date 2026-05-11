@@ -998,6 +998,7 @@ export default function App() {
                   {lateMins > 0 && <span className="text-red-500 font-medium">สาย {lateMins} นาที</span>}
                   {earlyLeaveMins > 0 && <span className="text-orange-500 font-medium">กลับก่อน {earlyLeaveMins} นาที</span>}
                   {emp.otHours > 0 && <span className="text-emerald-600 font-medium">OT {emp.otHours} ชม.</span>}
+                  {emp.specialHours > 0 && <span className="text-violet-600 font-medium">พิเศษ {emp.specialHours} ชม.</span>}
                   {todayWage != null && <span className="ml-auto font-bold text-emerald-600">฿{todayWage.toFixed(0)}</span>}
                 </div>
                 {/* Note + Save */}
@@ -1031,6 +1032,7 @@ export default function App() {
                   <th className="px-3 py-3 text-center font-bold text-slate-500 text-xs whitespace-nowrap">สาย<br/>(นาที)</th>
                   <th className="px-3 py-3 text-center font-bold text-slate-500 text-xs whitespace-nowrap">หักสาย<br/>(฿)</th>
                   <th className="px-3 py-3 text-center font-bold text-slate-500 text-xs whitespace-nowrap">OT<br/>(ชม.)</th>
+                  <th className="px-3 py-3 text-center font-bold text-slate-500 text-xs whitespace-nowrap">ชม.พิเศษ<br/>(ชม.)</th>
                   <th className="px-3 py-3 text-center font-bold text-slate-500 text-xs whitespace-nowrap">ค่าแรงวันนี้</th>
                   <th className="px-3 py-3 text-left font-bold text-slate-500 text-xs">หมายเหตุ</th>
                   <th className="px-3 py-3"></th>
@@ -1079,6 +1081,11 @@ export default function App() {
                       <td className="px-3 py-3 text-center whitespace-nowrap">
                         {emp.otHours > 0
                           ? <span className="text-emerald-600 font-medium">{emp.otHours}</span>
+                          : <span className="text-slate-300">—</span>}
+                      </td>
+                      <td className="px-3 py-3 text-center whitespace-nowrap">
+                        {emp.specialHours > 0
+                          ? <span className="text-violet-600 font-medium">{emp.specialHours}</span>
                           : <span className="text-slate-300">—</span>}
                       </td>
                       <td className="px-3 py-3 text-center font-bold text-emerald-600 whitespace-nowrap">

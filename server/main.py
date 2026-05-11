@@ -1279,6 +1279,17 @@ def get_attendance_day(date: str):
         GROUP BY EmployeeId
     """, date)
     ot_map = {r[0]: {"hours": float(r[1]), "otRate": float(r[2])} for r in cursor.fetchall()}
+
+    sh_map = {}
+    try:
+        cursor.execute("""
+            SELECT EmployeeId, SUM(Hours), SUM(Amount)
+            FROM SpecialHourLogs WHERE WorkDate = ?
+            GROUP BY EmployeeId
+        """, date)
+        sh_map = {r[0]: {"hours": float(r[1]), "amount": float(r[2])} for r in cursor.fetchall()}
+    except Exception:
+        pass
     conn.close()
 
     att_map = {}
@@ -1303,9 +1314,11 @@ def get_attendance_day(date: str):
             diff = time_to_minutes(att["in"]) - time_to_minutes(SCHEDULE["เข้างาน"]["expected"])
             if diff >= SCHEDULE["เข้างาน"]["graceMin"]:
                 late_mins = diff
+        sh = sh_map.get(emp_id, {"hours": 0, "amount": 0.0})
         result.append({**emp, "inTime": att["in"], "outTime": att["out"],
                         "note": att["note"], "lateMins": late_mins,
-                        "otHours": ot["hours"], "otRate": ot["otRate"]})
+                        "otHours": ot["hours"], "otRate": ot["otRate"],
+                        "specialHours": sh["hours"], "specialAmount": sh["amount"]})
 
     return {"date": date, "employees": result}
 

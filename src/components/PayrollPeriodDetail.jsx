@@ -303,14 +303,14 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
       [`งวดค่าแรง: ${fmtDate(detail.startDate)} — ${fmtDate(detail.endDate)}`],
       [`สถานะ: ${periodStatusText()}`],
       [],
-      ['ชื่อ', 'วันทำงาน', 'ค่าแรงปกติ', 'หักมาสาย', 'OT (฿)', 'งานเหมา (฿)', 'หักเบิก (฿)', 'สุทธิ (฿)', 'สถานะการจ่าย'],
+      ['ชื่อ', 'วันทำงาน', 'ค่าแรงปกติ', 'หักมาสาย', 'OT (฿)', 'งานเหมา (฿)', 'ชม.พิเศษ (฿)', 'หักเบิก (฿)', 'สุทธิ (฿)', 'สถานะการจ่าย'],
       ...detail.items.map(i => [
         i.name, i.workDays, i.baseAmount, i.lateDeduction,
-        i.otAmount, i.pieceRateTotal, i.advanceDeduction, i.netTotal,
+        i.otAmount, i.pieceRateTotal, i.specialHoursTotal || 0, i.advanceDeduction, i.netTotal,
         itemStatusText(i),
       ]),
       [],
-      [`รวมสุทธิ`, '', '', '', '', '', '', detail.grandTotal, ''],
+      [`รวมสุทธิ`, '', '', '', '', '', '', '', detail.grandTotal, ''],
     ];
     if (detail.items.some(i => i.pieceLogs?.length > 0)) {
       rows.push([], ['── รายการงานเหมา ──']);
@@ -342,17 +342,17 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
       [`งวดค่าแรง: ${fmtDate(detail.startDate)} — ${fmtDate(detail.endDate)}`],
       [`สถานะ: ${periodStatusText()}`],
       [],
-      ['ชื่อ', 'วันทำงาน', 'ค่าแรงปกติ', 'หักมาสาย', 'OT', 'งานเหมา', 'หักเบิก', 'สุทธิ', 'สถานะการจ่าย'],
+      ['ชื่อ', 'วันทำงาน', 'ค่าแรงปกติ', 'หักมาสาย', 'OT', 'งานเหมา', 'ชม.พิเศษ', 'หักเบิก', 'สุทธิ', 'สถานะการจ่าย'],
       ...detail.items.map(i => [
         i.name, i.workDays, i.baseAmount, i.lateDeduction,
-        i.otAmount, i.pieceRateTotal, i.advanceDeduction, i.netTotal,
+        i.otAmount, i.pieceRateTotal, i.specialHoursTotal || 0, i.advanceDeduction, i.netTotal,
         itemStatusText(i),
       ]),
       [],
-      ['รวมสุทธิ', '', '', '', '', '', '', detail.grandTotal, ''],
+      ['รวมสุทธิ', '', '', '', '', '', '', '', detail.grandTotal, ''],
     ];
     const ws1 = XLSX.utils.aoa_to_sheet(summaryAoa);
-    ws1['!cols'] = [{ wch: 20 }, { wch: 10 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 28 }];
+    ws1['!cols'] = [{ wch: 14 }, { wch: 9 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 11 }, { wch: 11 }, { wch: 12 }, { wch: 24 }];
     XLSX.utils.book_append_sheet(wb, ws1, 'สรุปค่าแรง');
 
     // Sheet 2: งานเหมา (ถ้ามี)
@@ -395,6 +395,7 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
         <td class="num" style="color:#ef4444">${item.lateDeduction > 0 ? fmt(item.lateDeduction) : '-'}</td>
         <td class="num" style="color:#10b981">${item.otAmount > 0 ? fmt(item.otAmount) : '-'}</td>
         <td class="num" style="color:#6366f1">${item.pieceRateTotal > 0 ? fmt(item.pieceRateTotal) : '-'}</td>
+        <td class="num" style="color:#7c3aed">${(item.specialHoursTotal || 0) > 0 ? fmt(item.specialHoursTotal) : '-'}</td>
         <td class="num" style="color:#f59e0b">${item.advanceDeduction > 0 ? fmt(item.advanceDeduction) : '-'}</td>
         <td class="num" style="font-weight:bold">${fmt(item.netTotal)}</td>
         <td style="font-size:11px">${st}</td>
@@ -427,15 +428,16 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
         .num { text-align: right; }
         .ctr { text-align: center; }
         .paid { color: #059669; } .deferred { color: #6366f1; } .unpaid { color: #94a3b8; }
-        col.c-name  { width: 16%; }
-        col.c-days  { width: 9%; }
-        col.c-wage  { width: 11%; }
-        col.c-late  { width: 10%; }
-        col.c-ot    { width: 9%; }
-        col.c-piece { width: 11%; }
-        col.c-adv   { width: 9%; }
-        col.c-net   { width: 11%; }
-        col.c-stat  { width: 14%; }
+        col.c-name  { width: 13%; }
+        col.c-days  { width: 7%; }
+        col.c-wage  { width: 10%; }
+        col.c-late  { width: 9%; }
+        col.c-ot    { width: 8%; }
+        col.c-piece { width: 9%; }
+        col.c-sh    { width: 9%; }
+        col.c-adv   { width: 8%; }
+        col.c-net   { width: 10%; }
+        col.c-stat  { width: 17%; }
         @media print { body { margin: 10px; } }
       </style></head><body>
       <div class="toolbar">
@@ -448,7 +450,7 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
         <colgroup>
           <col class="c-name"/><col class="c-days"/><col class="c-wage"/>
           <col class="c-late"/><col class="c-ot"/><col class="c-piece"/>
-          <col class="c-adv"/><col class="c-net"/><col class="c-stat"/>
+          <col class="c-sh"/><col class="c-adv"/><col class="c-net"/><col class="c-stat"/>
         </colgroup>
         <thead><tr>
           <th>ชื่อ</th>
@@ -457,13 +459,14 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
           <th class="num">หักมาสาย (฿)</th>
           <th class="num">OT (฿)</th>
           <th class="num">งานเหมา (฿)</th>
+          <th class="num">ชม.พิเศษ (฿)</th>
           <th class="num">หักเบิก (฿)</th>
           <th class="num">สุทธิ (฿)</th>
           <th>สถานะ</th>
         </tr></thead>
         <tbody>${rows}</tbody>
         <tfoot><tr>
-          <td colspan="7" class="num">รวมสุทธิทั้งหมด</td>
+          <td colspan="8" class="num">รวมสุทธิทั้งหมด</td>
           <td class="num">฿${fmt(detail.grandTotal)}</td>
           <td></td>
         </tr></tfoot>
