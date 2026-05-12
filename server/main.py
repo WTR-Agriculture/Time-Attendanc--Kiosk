@@ -597,7 +597,7 @@ def create_payroll_period(body: CreatePayrollPeriodBody):
 
         # กรอง logs ของคนนี้ (daily_logs เป็น list)
         emp_daily = [d for d in daily_logs if d["employeeId"] == emp_id]
-        work_days = len([d for d in emp_daily if d["workedHours"] > 0])
+        work_days = round(sum(round(min(d["paidHours"], 8) / 8 * 2) / 2 for d in emp_daily if d["workedHours"] > 0), 2)
         if rate_type == "daily":
             base = round(sum(min(d["paidHours"], 8) * hourly_rate for d in emp_daily if d["workedHours"] > 0), 2)
         else:
@@ -1132,7 +1132,7 @@ def recalculate_period(period_id: int):
             else:
                 base = round(work_days * rate, 2)
         else:
-            work_days = len([d for d in emp_daily if d["workedHours"] > 0])
+            work_days = round(sum(round(min(d["paidHours"], 8) / 8 * 2) / 2 for d in emp_daily if d["workedHours"] > 0), 2)
             if rate_type == "daily":
                 base = round(sum(min(d["paidHours"], 8) * hourly_rate for d in emp_daily if d["workedHours"] > 0), 2)
             else:
