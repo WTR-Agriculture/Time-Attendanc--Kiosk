@@ -746,6 +746,20 @@ def get_payroll_periods():
             p["unpaidItems"] = unpaid_map.get(p["id"], 0)
     except Exception:
         pass
+    try:
+        cursor.execute("""
+            SELECT PeriodId, COUNT(*)
+            FROM PayrollPeriodItems
+            WHERE ISNULL(IsDeferred,0) = 1
+              AND ISNULL(PaidStatus,'Unpaid') != 'Paid'
+            GROUP BY PeriodId
+        """)
+        deferred_map = {r[0]: r[1] for r in cursor.fetchall()}
+        for p in periods:
+            p["deferredCount"] = deferred_map.get(p["id"], 0)
+    except Exception:
+        for p in periods:
+            p["deferredCount"] = 0
     conn.close()
     return {"periods": periods}
 
@@ -842,6 +856,51 @@ def get_payroll_period_detail(period_id: int):
     except Exception:
         pass
 
+    # merge deferred info
+    try:
+        cursor.execute("""
+            SELECT ppi.EmployeeId, ISNULL(ppi.MergedDeferredPeriodId,0),
+                   ISNULL(ppi.MergedDeferredAmount,0), pp.StartDate, pp.EndDate
+            FROM PayrollPeriodItems ppi
+            LEFT JOIN PayrollPeriods pp ON pp.Id = ppi.MergedDeferredPeriodId
+            WHERE ppi.PeriodId=?
+        """, period_id)
+        for row in cursor.fetchall():
+            for item in items:
+                if item["employeeId"] == row[0]:
+                    item["mergedDeferredPeriodId"]  = row[1] or None
+                    item["mergedDeferredAmount"]     = float(row[2])
+                    item["mergedDeferredStartDate"]  = str(row[3]) if row[3] else None
+                    item["mergedDeferredEndDate"]    = str(row[4]) if row[4] else None
+                    break
+    except Exception:
+        for item in items:
+            item.update({"mergedDeferredPeriodId": None, "mergedDeferredAmount": 0.0,
+                         "mergedDeferredStartDate": None, "mergedDeferredEndDate": None})
+
+    # pending deferred ของพนักงานแต่ละคนในงวดอื่น
+    pending_map = {}
+    if emp_ids:
+        try:
+            cursor.execute(f"""
+                SELECT ppi.EmployeeId, ppi.PeriodId, pp.StartDate, pp.EndDate, ppi.NetTotal
+                FROM PayrollPeriodItems ppi
+                JOIN PayrollPeriods pp ON pp.Id = ppi.PeriodId
+                WHERE ppi.EmployeeId IN ({','.join(['?']*len(emp_ids))})
+                  AND ppi.PeriodId != ?
+                  AND ISNULL(ppi.IsDeferred,0) = 1
+                  AND ISNULL(ppi.PaidStatus,'Unpaid') != 'Paid'
+                  AND ISNULL(ppi.MergedDeferredPeriodId,0) = 0
+                ORDER BY ppi.PeriodId DESC
+            """, *emp_ids, period_id)
+            for row in cursor.fetchall():
+                eid = row[0]
+                if eid not in pending_map:
+                    pending_map[eid] = {"periodId": row[1], "startDate": str(row[2]),
+                                        "endDate": str(row[3]), "netTotal": float(row[4])}
+        except Exception:
+            pass
+
     conn.close()
 
     piece_by_emp = {}
@@ -861,6 +920,7 @@ def get_payroll_period_detail(period_id: int):
         item["specialHoursTotal"]  = sh_by_emp.get(item["employeeId"], {}).get("amount", 0.0)
         item["specialHoursHours"]  = sh_by_emp.get(item["employeeId"], {}).get("hours", 0.0)
         item["specialHoursLogs"]   = sh_detail_by_emp.get(item["employeeId"], [])
+        item["pendingDeferred"]    = pending_map.get(item["employeeId"])
 
     return {"id": p[0], "startDate": str(p[1]), "endDate": str(p[2]),
             "grandTotal": float(p[3]), "status": p[4], "paidAt": str(p[5]) if p[5] else None, "items": items}
@@ -927,7 +987,7 @@ def pay_payroll_period_item(period_id: int, employee_id: str, body: PayItemBody)
 
     # ตรวจว่า item มีอยู่และยังไม่จ่าย
     cursor.execute("""
-        SELECT PaidStatus, AdvanceDeduction, Name
+        SELECT PaidStatus, AdvanceDeduction, Name, ISNULL(MergedDeferredPeriodId,0)
         FROM PayrollPeriodItems WHERE PeriodId=? AND EmployeeId=?
     """, period_id, employee_id)
     row = cursor.fetchone()
@@ -938,7 +998,7 @@ def pay_payroll_period_item(period_id: int, employee_id: str, body: PayItemBody)
         conn.close()
         raise HTTPException(status_code=400, detail="จ่ายแล้ว")
 
-    advance_deduction, emp_name = float(row[1]), row[2]
+    advance_deduction, emp_name, merged_period_id = float(row[1]), row[2], row[3]
 
     # อัปเดต item
     cursor.execute("""
@@ -947,6 +1007,15 @@ def pay_payroll_period_item(period_id: int, employee_id: str, body: PayItemBody)
         WHERE PeriodId=? AND EmployeeId=?
     """, body.paymentMethod, period_id, employee_id)
 
+    # ถ้ามีรวมจ่ายจากงวดเก่า → mark งวดเก่าว่าจ่ายแล้วด้วย
+    if merged_period_id:
+        cursor.execute("""
+            UPDATE PayrollPeriodItems
+            SET PaidStatus='Paid', PaidAt=GETDATE(), PaymentMethod=?, IsDeferred=0
+            WHERE PeriodId=? AND EmployeeId=?
+        """, body.paymentMethod, merged_period_id, employee_id)
+        recalc_period_status(cursor, merged_period_id)
+
     # บันทึกหักเบิก (ถ้ามี)
     if advance_deduction > 0:
         cursor.execute("""
@@ -954,9 +1023,73 @@ def pay_payroll_period_item(period_id: int, employee_id: str, body: PayItemBody)
             VALUES (?, ?, CAST(GETDATE() AS DATE), 'หัก', ?, 'หักจากงวดค่าแรง', ?)
         """, employee_id, emp_name, advance_deduction, period_id)
 
-    # อัปเดตสถานะงวด (นับเฉพาะ non-deferred)
     recalc_period_status(cursor, period_id)
+    conn.commit()
+    conn.close()
+    return {"success": True}
 
+# ============================================================
+#  PUT /api/payroll/periods/{id}/items/{employee_id}/merge-deferred
+# ============================================================
+@app.put("/api/payroll/periods/{period_id}/items/{employee_id}/merge-deferred")
+def merge_deferred(period_id: int, employee_id: str):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT PeriodId, NetTotal FROM PayrollPeriodItems
+        WHERE EmployeeId=? AND PeriodId != ?
+          AND ISNULL(IsDeferred,0)=1
+          AND ISNULL(PaidStatus,'Unpaid') != 'Paid'
+          AND ISNULL(MergedDeferredPeriodId,0)=0
+        ORDER BY PeriodId DESC
+    """, employee_id, period_id)
+    deferred_row = cursor.fetchone()
+    if not deferred_row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="ไม่พบรายการเลื่อนจ่าย")
+    deferred_period_id, deferred_amount = deferred_row[0], float(deferred_row[1])
+    cursor.execute("""
+        UPDATE PayrollPeriodItems
+        SET MergedDeferredPeriodId=?, MergedDeferredAmount=?,
+            NetTotal=NetTotal+?
+        WHERE PeriodId=? AND EmployeeId=?
+    """, deferred_period_id, deferred_amount, deferred_amount, period_id, employee_id)
+    cursor.execute("""
+        UPDATE PayrollPeriods SET GrandTotal=(
+            SELECT SUM(NetTotal) FROM PayrollPeriodItems WHERE PeriodId=?
+        ) WHERE Id=?
+    """, period_id, period_id)
+    conn.commit()
+    conn.close()
+    return {"success": True, "mergedPeriodId": deferred_period_id, "mergedAmount": deferred_amount}
+
+# ============================================================
+#  PUT /api/payroll/periods/{id}/items/{employee_id}/unmerge-deferred
+# ============================================================
+@app.put("/api/payroll/periods/{period_id}/items/{employee_id}/unmerge-deferred")
+def unmerge_deferred(period_id: int, employee_id: str):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT ISNULL(MergedDeferredAmount,0) FROM PayrollPeriodItems
+        WHERE PeriodId=? AND EmployeeId=?
+    """, period_id, employee_id)
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="ไม่พบรายการ")
+    merged_amount = float(row[0])
+    cursor.execute("""
+        UPDATE PayrollPeriodItems
+        SET MergedDeferredPeriodId=NULL, MergedDeferredAmount=0,
+            NetTotal=NetTotal-?
+        WHERE PeriodId=? AND EmployeeId=?
+    """, merged_amount, period_id, employee_id)
+    cursor.execute("""
+        UPDATE PayrollPeriods SET GrandTotal=(
+            SELECT SUM(NetTotal) FROM PayrollPeriodItems WHERE PeriodId=?
+        ) WHERE Id=?
+    """, period_id, period_id)
     conn.commit()
     conn.close()
     return {"success": True}

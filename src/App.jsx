@@ -1292,6 +1292,9 @@ export default function App() {
                         ? <span className="bg-amber-100 text-amber-700 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1"><IconClock />จ่ายบางส่วน</span>
                         : <span className="bg-red-100 text-red-600 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1">ยังไม่จ่าย <IconChevronRight /></span>
                     }
+                    {p.deferredCount > 0 && (
+                      <span className="bg-sky-100 text-sky-600 text-xs font-bold px-2.5 py-1 rounded-full">เลื่อน {p.deferredCount} คน</span>
+                    )}
                   </div>
                 </button>
               ))

@@ -61,6 +61,7 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
   const [payingId,     setPayingId]     = useState(null);
   const [payMethodFor, setPayMethodFor] = useState(null);
   const [deferringId,  setDeferringId]  = useState(null);
+  const [mergingId,    setMergingId]    = useState(null);
   const [deleting,       setDeleting]       = useState(false);
   const [recalculating,  setRecalculating]  = useState(false);
   const [expanded, setExpanded] = useState({});
@@ -270,6 +271,20 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
     setDeferringId(null);
   };
 
+  const handleMerge = async (item) => {
+    setMergingId(item.employeeId);
+    try { await api.mergeDeferred(period.id, item.employeeId); await loadDetail(); onPaid?.(); }
+    catch (err) { console.error(err); }
+    setMergingId(null);
+  };
+
+  const handleUnmerge = async (item) => {
+    setMergingId(item.employeeId);
+    try { await api.unmergeDeferred(period.id, item.employeeId); await loadDetail(); onPaid?.(); }
+    catch (err) { console.error(err); }
+    setMergingId(null);
+  };
+
   // ── Pay individual employee ──
   const handlePayEmployee = async (method) => {
     if (!payMethodFor) return;
@@ -325,6 +340,17 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
         });
       });
     }
+    if (detail.items.some(i => i.mergedDeferredAmount > 0)) {
+      rows.push([], ['── รวมจ่ายจากงวดก่อน ──']);
+      rows.push(['พนักงาน', 'งวดที่เลื่อนมา', 'จำนวนเงิน (฿)']);
+      detail.items.filter(i => i.mergedDeferredAmount > 0).forEach(item => {
+        rows.push([
+          item.name,
+          `${fmtDate(item.mergedDeferredStartDate)}–${fmtDate(item.mergedDeferredEndDate)}`,
+          item.mergedDeferredAmount,
+        ]);
+      });
+    }
     const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
     const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -375,6 +401,20 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
       ws2['!cols'] = [{ wch: 20 }, { wch: 24 }, { wch: 10 }, { wch: 8 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 20 }];
       XLSX.utils.book_append_sheet(wb, ws2, 'งานเหมา');
     }
+    const mergedItems = detail.items.filter(i => i.mergedDeferredAmount > 0);
+    if (mergedItems.length > 0) {
+      const mergedAoa = [
+        ['พนักงาน', 'งวดที่เลื่อนมา', 'จำนวนเงิน (฿)'],
+        ...mergedItems.map(i => [
+          i.name,
+          `${fmtDate(i.mergedDeferredStartDate)}–${fmtDate(i.mergedDeferredEndDate)}`,
+          i.mergedDeferredAmount,
+        ]),
+      ];
+      const ws3 = XLSX.utils.aoa_to_sheet(mergedAoa);
+      ws3['!cols'] = [{ wch: 20 }, { wch: 24 }, { wch: 14 }];
+      XLSX.utils.book_append_sheet(wb, ws3, 'รวมจ่ายงวดก่อน');
+    }
 
     XLSX.writeFile(wb, `payroll_${detail.startDate}_${detail.endDate}.xlsx`);
   };
@@ -405,6 +445,10 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
           งานเหมา: ${item.pieceLogs.map(l =>
             `${l.jobName} ×${l.quantity}${l.unitLength > 0 ? ` (${l.unitLength}ศอก)` : ''} = ฿${fmt(l.totalAmount)}`
           ).join(' / ')}
+        </td></tr>` : ''}
+      ${item.mergedDeferredAmount > 0 ? `
+        <tr><td colspan="9" style="padding:2px 10px 6px;color:#0369a1;font-size:11px">
+          รวมจากงวด ${item.mergedDeferredStartDate ? fmtDate(item.mergedDeferredStartDate) + '–' + fmtDate(item.mergedDeferredEndDate) : ''} = ฿${fmt(item.mergedDeferredAmount)}
         </td></tr>` : ''}
     `;
     }).join('');
@@ -603,6 +647,9 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
           const isDeferred  = item.isDeferred && !itemPaid;
           const isPaying    = payingId    === item.employeeId;
           const isDeferring = deferringId === item.employeeId;
+          const isMerging   = mergingId   === item.employeeId;
+          const hasMerged   = item.mergedDeferredAmount > 0;
+          const hasPending  = !itemPaid && !isDeferred && !hasMerged && item.pendingDeferred;
           return (
             <div key={item.employeeId}
               className={`bg-white rounded-3xl border shadow-sm p-5 flex flex-col gap-3
@@ -685,6 +732,26 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
                   <span className="bg-violet-50 text-violet-600 rounded-xl px-3 py-1.5">
                     ชม.พิเศษ {item.specialHoursHours} ชม. +{fmtB(item.specialHoursTotal)}
                   </span>
+                )}
+                {hasMerged && (
+                  <span className="bg-sky-50 text-sky-700 rounded-xl px-3 py-1.5 flex items-center gap-1.5">
+                    รวมจากงวด {fmtDate(item.mergedDeferredStartDate)}–{fmtDate(item.mergedDeferredEndDate)} +{fmtB(item.mergedDeferredAmount)}
+                    {!itemPaid && (
+                      <button onClick={() => handleUnmerge(item)} disabled={isMerging}
+                        className="ml-1 text-sky-400 hover:text-red-400 font-bold cursor-pointer disabled:opacity-50">✕</button>
+                    )}
+                  </span>
+                )}
+                {hasPending && (
+                  <div className="flex items-center gap-2">
+                    <span className="bg-sky-50 text-sky-600 rounded-xl px-3 py-1.5">
+                      มีเลื่อนจากงวด {fmtDate(item.pendingDeferred.startDate)}–{fmtDate(item.pendingDeferred.endDate)} · {fmtB(item.pendingDeferred.netTotal)}
+                    </span>
+                    <button onClick={() => handleMerge(item)} disabled={isMerging}
+                      className="bg-sky-500 text-white text-xs font-bold px-3 py-1.5 rounded-xl cursor-pointer disabled:opacity-50 active:scale-95 transition-transform whitespace-nowrap">
+                      {isMerging ? '...' : 'รวมจ่าย'}
+                    </button>
+                  </div>
                 )}
                 {item.outstandingAdvance > 0 && !itemPaid && (
                   <div className="flex items-center gap-2">

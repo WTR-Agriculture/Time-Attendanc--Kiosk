@@ -330,6 +330,18 @@ export async function deleteSpecialHourLog(id) {
   return res.json();
 }
 
+export async function mergeDeferred(periodId, employeeId) {
+  const res = await fetch(`${API_URL}/api/payroll/periods/${periodId}/items/${encodeURIComponent(employeeId)}/merge-deferred`, { method: 'PUT' });
+  if (!res.ok) throw new Error(`API PUT error: ${res.status}`);
+  return res.json();
+}
+
+export async function unmergeDeferred(periodId, employeeId) {
+  const res = await fetch(`${API_URL}/api/payroll/periods/${periodId}/items/${encodeURIComponent(employeeId)}/unmerge-deferred`, { method: 'PUT' });
+  if (!res.ok) throw new Error(`API PUT error: ${res.status}`);
+  return res.json();
+}
+
 export async function setAdvanceDeduction(periodId, employeeId, amount) {
   const res = await fetch(`${API_URL}/api/payroll/periods/${periodId}/advance`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json' },
