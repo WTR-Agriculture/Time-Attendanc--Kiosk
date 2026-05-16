@@ -966,8 +966,8 @@ export default function App() {
             const cappedHrs      = paidHrsN !== null ? Math.min(paidHrsN, 8) : null;
             const otAmt          = emp.otHours > 0 ? emp.otHours * (emp.rate / 8) * emp.otRate : 0;
             const todayWage      = emp.rateType === 'daily'
-              ? (cappedHrs !== null ? cappedHrs * (emp.rate / 8) - lateDeduct + otAmt : null)
-              : (netHoursN ? netHoursN * emp.rate + otAmt : null);
+              ? (cappedHrs !== null ? cappedHrs * (emp.rate / 8) - lateDeduct + otAmt + (emp.specialAmount || 0) : null)
+              : (netHoursN ? netHoursN * emp.rate + otAmt + (emp.specialAmount || 0) : null);
             const isSaving   = attSavingId === emp.employeeId;
             const isSaved    = attSavedId  === emp.employeeId;
             const hasData    = !!(emp.inTime || emp.outTime);
@@ -1048,8 +1048,8 @@ export default function App() {
                   const cappedHrs   = paidHrsN !== null ? Math.min(paidHrsN, 8) : null;
                   const otAmt       = emp.otHours > 0 ? emp.otHours * (emp.rate / 8) * emp.otRate : 0;
                   const todayWage   = emp.rateType === 'daily'
-                    ? (cappedHrs !== null ? cappedHrs * (emp.rate / 8) - lateDeduct + otAmt : null)
-                    : (netHoursN ? netHoursN * emp.rate + otAmt : null);
+                    ? (cappedHrs !== null ? cappedHrs * (emp.rate / 8) - lateDeduct + otAmt + (emp.specialAmount || 0) : null)
+                    : (netHoursN ? netHoursN * emp.rate + otAmt + (emp.specialAmount || 0) : null);
                   const isSaving   = attSavingId === emp.employeeId;
                   const isSaved    = attSavedId  === emp.employeeId;
                   const hasData    = !!(emp.inTime || emp.outTime);
