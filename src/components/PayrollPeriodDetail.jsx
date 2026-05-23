@@ -990,7 +990,7 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
           </div>
           <div className="flex flex-col gap-1.5">
             <label className="text-sm font-semibold text-slate-500">จำนวนวันทำงาน *</label>
-            <input type="number" min="0" step="0.5" value={editDaysVal}
+            <input type="number" min="0" step="0.5" inputMode="decimal" value={editDaysVal}
               onChange={e => setEditDaysVal(e.target.value)}
               className={inputCls} />
           </div>
