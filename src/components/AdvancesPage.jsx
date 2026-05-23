@@ -76,7 +76,7 @@ export default function AdvancesPage() {
         note: deductNote,
       });
       setDeductEmp(null);
-      loadData();
+      await loadData();
     } catch {}
     setDeductSaving(false);
   };
@@ -101,7 +101,7 @@ export default function AdvancesPage() {
         note: addNote,
       });
       setShowAdd(false);
-      loadData();
+      await loadData();
     } catch {}
     setAddSaving(false);
   };

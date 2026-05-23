@@ -823,11 +823,11 @@ def get_payroll_period_detail(period_id: int):
     if emp_ids:
         cursor.execute(f"""
             SELECT EmployeeId,
-                   SUM(CASE WHEN Type='เบิก' THEN Amount ELSE -Amount END)
+                   SUM(CASE WHEN Type=? THEN Amount ELSE -Amount END)
             FROM WageAdvances
             WHERE EmployeeId IN ({','.join(['?']*len(emp_ids))})
             GROUP BY EmployeeId
-        """, *emp_ids)
+        """, 'เบิก', *emp_ids)
         balance_map = {r[0]: max(0.0, float(r[1])) for r in cursor.fetchall()}
 
     # ดึง special hours ของงวดนี้ (date range)
@@ -1020,8 +1020,8 @@ def pay_payroll_period_item(period_id: int, employee_id: str, body: PayItemBody)
     if advance_deduction > 0:
         cursor.execute("""
             INSERT INTO WageAdvances (EmployeeId, EmployeeName, TranDate, Type, Amount, Note, PeriodId)
-            VALUES (?, ?, CAST(GETDATE() AS DATE), 'หัก', ?, 'หักจากงวดค่าแรง', ?)
-        """, employee_id, emp_name, advance_deduction, period_id)
+            VALUES (?, ?, CAST(GETDATE() AS DATE), ?, ?, ?, ?)
+        """, employee_id, emp_name, 'หัก', advance_deduction, 'หักจากงวดค่าแรง', period_id)
 
     recalc_period_status(cursor, period_id)
     conn.commit()
@@ -1139,14 +1139,14 @@ def pay_payroll_period(period_id: int):
         WHERE ppi.PeriodId = ? AND ppi.AdvanceDeduction > 0
           AND NOT EXISTS (
             SELECT 1 FROM WageAdvances wa
-            WHERE wa.PeriodId=ppi.PeriodId AND wa.EmployeeId=ppi.EmployeeId AND wa.Type='หัก'
+            WHERE wa.PeriodId=ppi.PeriodId AND wa.EmployeeId=ppi.EmployeeId AND wa.Type=?
           )
-    """, period_id)
+    """, period_id, 'หัก')
     for emp_id, emp_name, amount in cursor.fetchall():
         cursor.execute("""
             INSERT INTO WageAdvances (EmployeeId, EmployeeName, TranDate, Type, Amount, Note, PeriodId)
-            VALUES (?, ?, CAST(GETDATE() AS DATE), 'หัก', ?, 'หักจากงวดค่าแรง', ?)
-        """, emp_id, emp_name, float(amount), period_id)
+            VALUES (?, ?, CAST(GETDATE() AS DATE), ?, ?, ?, ?)
+        """, emp_id, emp_name, 'หัก', float(amount), 'หักจากงวดค่าแรง', period_id)
     conn.commit()
     conn.close()
     return {"success": True, "message": "ยืนยันการจ่ายเงินเรียบร้อย"}
@@ -1778,10 +1778,10 @@ def get_advances():
     employees = [{"employeeId": r[0], "name": r[1]} for r in cursor.fetchall()]
     cursor.execute("""
         SELECT EmployeeId,
-            SUM(CASE WHEN Type='เบิก' THEN Amount ELSE 0 END),
-            SUM(CASE WHEN Type='หัก'  THEN Amount ELSE 0 END)
+            SUM(CASE WHEN Type=? THEN Amount ELSE 0 END),
+            SUM(CASE WHEN Type=? THEN Amount ELSE 0 END)
         FROM WageAdvances GROUP BY EmployeeId
-    """)
+    """, 'เบิก', 'หัก')
     bal_map = {r[0]: (float(r[1]), float(r[2])) for r in cursor.fetchall()}
     conn.close()
     result = []
@@ -1825,8 +1825,8 @@ def deduct_advance(body: DeductAdvanceBody):
     cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO WageAdvances (EmployeeId, EmployeeName, TranDate, Type, Amount, Note, PeriodId)
-        VALUES (?, ?, CAST(GETDATE() AS DATE), 'หัก', ?, ?, ?)
-    """, body.employeeId, body.employeeName, body.amount, body.note or 'หักเบิก', body.periodId)
+        VALUES (?, ?, CAST(GETDATE() AS DATE), ?, ?, ?, ?)
+    """, body.employeeId, body.employeeName, 'หัก', body.amount, body.note or 'หักเบิก', body.periodId)
     if body.periodId:
         cursor.execute("""
             UPDATE PayrollPeriodItems
@@ -1845,8 +1845,8 @@ def create_advance(body: WageAdvanceBody):
     cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO WageAdvances (EmployeeId, EmployeeName, TranDate, Type, Amount, Note)
-        VALUES (?, ?, ?, 'เบิก', ?, ?)
-    """, body.employeeId, body.employeeName, body.tranDate, body.amount, body.note)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, body.employeeId, body.employeeName, body.tranDate, 'เบิก', body.amount, body.note)
     conn.commit()
     conn.close()
     return {"success": True}
