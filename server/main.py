@@ -1198,7 +1198,8 @@ def recalculate_period(period_id: int):
 
     # โหลด items ที่ยังไม่จ่าย
     cursor.execute("""
-        SELECT EmployeeId, PieceRateTotal, AdvanceDeduction, ISNULL(WorkDaysOverride,0), WorkDays
+        SELECT EmployeeId, PieceRateTotal, AdvanceDeduction, ISNULL(WorkDaysOverride,0), WorkDays,
+               ISNULL(MergedDeferredAmount,0)
         FROM PayrollPeriodItems
         WHERE PeriodId=? AND ISNULL(PaidStatus,'Unpaid') != 'Paid'
     """, period_id)
@@ -1207,7 +1208,8 @@ def recalculate_period(period_id: int):
         conn.close()
         return {"success": True, "updated": 0}
     unpaid_ids = {r[0]: {"pieceRateTotal": float(r[1]), "advanceDeduction": float(r[2]),
-                          "workDaysOverride": bool(r[3]), "overrideWorkDays": float(r[4])} for r in unpaid_rows}
+                          "workDaysOverride": bool(r[3]), "overrideWorkDays": float(r[4]),
+                          "mergedDeferredAmount": float(r[5])} for r in unpaid_rows}
 
     # โหลด employee rate
     cursor.execute("SELECT EmployeeId, Rate, RateType FROM Employees WHERE IsActive=1")
@@ -1277,10 +1279,11 @@ def recalculate_period(period_id: int):
         ot_entry  = ot_map.get(emp_id, {"hours": 0, "weighted": 0})
         ot_hours  = ot_entry["hours"]
         ot_amount = round(hourly_rate * ot_entry["weighted"], 2)
-        piece_total    = kept["pieceRateTotal"]
-        advance_deduct = kept["advanceDeduction"]
-        special_hours  = sh_map.get(emp_id, 0.0)
-        new_net = round(base - late_deduction + ot_amount + piece_total - advance_deduct + special_hours, 2)
+        piece_total          = kept["pieceRateTotal"]
+        advance_deduct       = kept["advanceDeduction"]
+        special_hours        = sh_map.get(emp_id, 0.0)
+        merged_deferred      = kept["mergedDeferredAmount"]
+        new_net = round(base - late_deduction + ot_amount + piece_total - advance_deduct + special_hours + merged_deferred, 2)
         cursor.execute("""
             UPDATE PayrollPeriodItems
             SET WorkDays=?, BaseAmount=?, LateDeduction=?, OTHours=?, OTAmount=?, NetTotal=?
