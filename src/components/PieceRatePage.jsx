@@ -572,8 +572,8 @@ export default function PieceRatePage({ employees }) {
             {cHasLen && (
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-sm font-semibold text-slate-500">บวกเพิ่มต่อศอก (฿)</label>
-                  <input type="number" min="0" value={cExtra} onChange={e => setCExtra(e.target.value)}
+                  <label className="text-sm font-semibold text-slate-500">บวก/ลบต่อศอก (฿)</label>
+                  <input type="number" value={cExtra} onChange={e => setCExtra(e.target.value)}
                     placeholder="25" className={inputCls} />
                 </div>
                 <div className="flex flex-col gap-1.5">
