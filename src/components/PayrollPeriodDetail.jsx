@@ -160,7 +160,7 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
   const calcPrice = (job, qty, len) => {
     if (!job) return { unitPrice: 0, totalAmount: 0 };
     const extra = job.hasLength
-      ? Math.max(0, (parseFloat(len) || 0) - job.baseLength) * job.extraPerUnit
+      ? ((parseFloat(len) || 0) - job.baseLength) * job.extraPerUnit
       : 0;
     const unitPrice = job.basePrice + extra;
     return { unitPrice, totalAmount: unitPrice * (parseFloat(qty) || 0) };
