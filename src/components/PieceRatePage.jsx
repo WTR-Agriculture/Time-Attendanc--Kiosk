@@ -331,7 +331,7 @@ export default function PieceRatePage({ employees }) {
               {selectedJob?.hasLength && (
                 <div className="flex flex-col gap-1.5">
                   <label className="text-sm font-semibold text-slate-500">
-                    ความยาว (ศอก) · +{selectedJob.extraPerUnit}/ศอก
+                    ความยาว (ศอก) · {selectedJob.extraPerUnit >= 0 ? '+' : ''}{selectedJob.extraPerUnit}/ศอก
                   </label>
                   <input type="number" min="0" value={fLen} onChange={e => setFLen(e.target.value)}
                     placeholder="0" className={inputCls} />
@@ -466,7 +466,7 @@ export default function PieceRatePage({ employees }) {
                       <p className="font-semibold text-[#222222] text-sm">{cat.name}</p>
                       <p className="text-xs text-slate-400 mt-0.5">
                         {cat.hasLength
-                          ? `มีสูตรศอก: +฿${cat.extraPerUnit}/ศอก${cat.baseLength > 0 ? ` (เกิน ${cat.baseLength})` : ''}`
+                          ? `มีสูตรศอก: ${cat.extraPerUnit >= 0 ? '+' : ''}฿${cat.extraPerUnit}/ศอก${cat.baseLength > 0 ? ` (มาตรฐาน ${cat.baseLength} ศอก)` : ''}`
                           : 'ไม่มีสูตรพิเศษ'}
                       </p>
                     </div>
@@ -627,7 +627,7 @@ export default function PieceRatePage({ employees }) {
             {jCatId && categories.find(c => c.id === Number(jCatId))?.hasLength && (
               <div className="bg-[#7B8CFA]/8 border border-[#7B8CFA]/20 rounded-2xl px-4 py-2.5 text-sm text-[#7B8CFA] flex items-start gap-2">
                 <IconCheck />
-                <span>รายการนี้จะใช้สูตร +{categories.find(c => c.id === Number(jCatId))?.extraPerUnit} บาท/ศอก จากประเภท "{categories.find(c => c.id === Number(jCatId))?.name}" อัตโนมัติ</span>
+                <span>รายการนี้จะใช้สูตร {(categories.find(c => c.id === Number(jCatId))?.extraPerUnit ?? 0) >= 0 ? '+' : ''}{categories.find(c => c.id === Number(jCatId))?.extraPerUnit} บาท/ศอก จากประเภท "{categories.find(c => c.id === Number(jCatId))?.name}" อัตโนมัติ</span>
               </div>
             )}
           </div>
