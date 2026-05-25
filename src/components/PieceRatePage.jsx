@@ -577,9 +577,9 @@ export default function PieceRatePage({ employees }) {
                     placeholder="25" className={inputCls} />
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-sm font-semibold text-slate-500">เริ่มบวกเมื่อเกิน (ศอก)</label>
+                  <label className="text-sm font-semibold text-slate-500">ความยาวมาตรฐาน (ศอก)</label>
                   <input type="number" min="0" value={cBase} onChange={e => setCBase(e.target.value)}
-                    placeholder="0 = บวกทุกศอก" className={inputCls} />
+                    placeholder="0" className={inputCls} />
                 </div>
               </div>
             )}
