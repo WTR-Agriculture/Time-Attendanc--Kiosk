@@ -319,8 +319,9 @@ export default function App() {
   const [otSaving,  setOtSaving]  = useState(false);
   const [otSuccess, setOtSuccess] = useState(null);
   const [otError,   setOtError]   = useState(null);
-  const [otLogs,    setOtLogs]    = useState([]);
-  const [otLoading, setOtLoading] = useState(false);
+  const [otLogs,          setOtLogs]          = useState([]);
+  const [otLoading,       setOtLoading]       = useState(false);
+  const [otConfirmDelete, setOtConfirmDelete] = useState(null);
 
   // --- Special Hours modal ---
   const [showSH,   setShowSH]   = useState(false);
@@ -569,9 +570,9 @@ export default function App() {
   }
 
   async function handleDeleteOT(log) {
-    if (!window.confirm(`ลบ OT ${log.hours} ชม. วันที่ ${fmtD(log.dateWork)} ใช่มั้ย?`)) return;
     try {
       await api.deleteOT(log.employeeId, log.dateWork);
+      setOtConfirmDelete(null);
       await loadOTLogs(otEmpId);
     } catch {}
   }
@@ -1223,14 +1224,30 @@ export default function App() {
                 </p>
               </div>
               <div className="flex gap-2 flex-shrink-0">
-                <button onClick={() => handleEditOT(log)}
-                  className="text-xs font-semibold text-[#7B8CFA] bg-[#7B8CFA]/10 px-3 py-1.5 rounded-xl cursor-pointer hover:bg-[#7B8CFA]/20">
-                  แก้ไข
-                </button>
-                <button onClick={() => handleDeleteOT(log)}
-                  className="text-xs font-semibold text-red-500 bg-red-50 px-3 py-1.5 rounded-xl cursor-pointer hover:bg-red-100">
-                  ลบ
-                </button>
+                {otConfirmDelete === log.dateWork ? (
+                  <>
+                    <span className="text-xs text-slate-500 self-center">ยืนยันลบ?</span>
+                    <button onClick={() => handleDeleteOT(log)}
+                      className="text-xs font-semibold text-white bg-red-500 px-3 py-1.5 rounded-xl cursor-pointer">
+                      ลบ
+                    </button>
+                    <button onClick={() => setOtConfirmDelete(null)}
+                      className="text-xs font-semibold text-slate-500 bg-slate-100 px-3 py-1.5 rounded-xl cursor-pointer">
+                      ยกเลิก
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button onClick={() => handleEditOT(log)}
+                      className="text-xs font-semibold text-[#7B8CFA] bg-[#7B8CFA]/10 px-3 py-1.5 rounded-xl cursor-pointer hover:bg-[#7B8CFA]/20">
+                      แก้ไข
+                    </button>
+                    <button onClick={() => setOtConfirmDelete(log.dateWork)}
+                      className="text-xs font-semibold text-red-500 bg-red-50 px-3 py-1.5 rounded-xl cursor-pointer hover:bg-red-100">
+                      ลบ
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           ))}
