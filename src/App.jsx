@@ -311,14 +311,16 @@ export default function App() {
   const [attSearch,    setAttSearch]    = useState('');
 
   // --- OT tab ---
-  const [otEmpId,  setOtEmpId]  = useState('');
-  const [otDate,   setOtDate]   = useState('');
-  const [otHours,  setOtHours]  = useState('');
-  const [otNote,   setOtNote]   = useState('');
-  const [otRate,   setOtRate]   = useState(1.0);
-  const [otSaving, setOtSaving] = useState(false);
-  const [otSuccess,setOtSuccess]= useState(null);
-  const [otError,  setOtError]  = useState(null);
+  const [otEmpId,   setOtEmpId]   = useState('');
+  const [otDate,    setOtDate]    = useState('');
+  const [otHours,   setOtHours]   = useState('');
+  const [otNote,    setOtNote]    = useState('');
+  const [otRate,    setOtRate]    = useState(1.0);
+  const [otSaving,  setOtSaving]  = useState(false);
+  const [otSuccess, setOtSuccess] = useState(null);
+  const [otError,   setOtError]   = useState(null);
+  const [otLogs,    setOtLogs]    = useState([]);
+  const [otLoading, setOtLoading] = useState(false);
 
   // --- Special Hours modal ---
   const [showSH,   setShowSH]   = useState(false);
@@ -533,6 +535,13 @@ export default function App() {
   // ============================================================
   //  OT
   // ============================================================
+  async function loadOTLogs(empId) {
+    if (!empId) { setOtLogs([]); return; }
+    setOtLoading(true);
+    try { const d = await api.getOT({ employeeId: empId }); setOtLogs(d.otLogs || []); } catch {}
+    setOtLoading(false);
+  }
+
   async function handleSubmitOT() {
     if (!otEmpId || !otDate || !otHours) return;
     setOtSaving(true);
@@ -550,12 +559,31 @@ export default function App() {
       });
       setOtSuccess(`บันทึก OT ${otHours} ชม. (x${otRate}) ให้ ${emp?.name || otEmpId} วันที่ ${fmtD(otDate)} สำเร็จ`);
       setOtHours(''); setOtNote(''); setOtRate(1.0);
+      await loadOTLogs(otEmpId);
     } catch (err) {
       setOtError('บันทึก OT ไม่สำเร็จ กรุณาลองใหม่');
       console.error(err);
     } finally {
       setOtSaving(false);
     }
+  }
+
+  async function handleDeleteOT(log) {
+    if (!window.confirm(`ลบ OT ${log.hours} ชม. วันที่ ${fmtD(log.dateWork)} ใช่มั้ย?`)) return;
+    try {
+      await api.deleteOT(log.employeeId, log.dateWork);
+      await loadOTLogs(otEmpId);
+    } catch {}
+  }
+
+  function handleEditOT(log) {
+    setOtDate(log.dateWork);
+    setOtHours(String(log.hours));
+    setOtNote(log.note || '');
+    setOtRate(log.otRate);
+    setOtSuccess(null);
+    setOtError(null);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   // ============================================================
@@ -1130,7 +1158,7 @@ export default function App() {
       <div className="bg-[#F8FAFC] p-6 rounded-2xl border border-slate-100 flex flex-col gap-4">
         <div className="flex flex-col gap-1.5">
           <label className="text-sm font-bold text-slate-600">พนักงาน</label>
-          <select value={otEmpId} onChange={e => { setOtEmpId(e.target.value); setOtSuccess(null); setOtError(null); }}
+          <select value={otEmpId} onChange={e => { setOtEmpId(e.target.value); setOtSuccess(null); setOtError(null); loadOTLogs(e.target.value); }}
             className="bg-white border border-slate-200 rounded-xl px-4 py-3 text-base outline-none focus:border-[#7B8CFA] cursor-pointer">
             <option value="">-- เลือกพนักงาน --</option>
             {activeEmployees.map(emp => <option key={emp.employeeId} value={emp.employeeId}>{emp.name} ({emp.employeeId})</option>)}
@@ -1176,6 +1204,38 @@ export default function App() {
         {otSuccess && <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-3 rounded-xl text-sm font-medium flex items-center gap-2"><IconCheck />{otSuccess}</div>}
         {otError   && <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-xl text-sm font-medium">{otError}</div>}
       </div>
+
+      {/* รายการ OT */}
+      {otEmpId && (
+        <div className="flex flex-col gap-3">
+          <h3 className="font-bold text-slate-600 text-sm">ประวัติ OT — {employees.find(e => e.employeeId === otEmpId)?.name}</h3>
+          {otLoading ? (
+            <p className="text-center text-slate-400 text-sm py-6">กำลังโหลด...</p>
+          ) : otLogs.length === 0 ? (
+            <p className="text-center text-slate-400 text-sm py-6">ยังไม่มีรายการ OT</p>
+          ) : otLogs.map(log => (
+            <div key={log.dateWork} className="bg-white border border-slate-100 rounded-2xl px-4 py-3 flex items-center gap-3 shadow-sm">
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-sm text-[#222222]">{fmtD(log.dateWork)}</p>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {log.hours} ชม. · x{log.otRate}
+                  {log.note && ` · ${log.note}`}
+                </p>
+              </div>
+              <div className="flex gap-2 flex-shrink-0">
+                <button onClick={() => handleEditOT(log)}
+                  className="text-xs font-semibold text-[#7B8CFA] bg-[#7B8CFA]/10 px-3 py-1.5 rounded-xl cursor-pointer hover:bg-[#7B8CFA]/20">
+                  แก้ไข
+                </button>
+                <button onClick={() => handleDeleteOT(log)}
+                  className="text-xs font-semibold text-red-500 bg-red-50 px-3 py-1.5 rounded-xl cursor-pointer hover:bg-red-100">
+                  ลบ
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 

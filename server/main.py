@@ -347,6 +347,38 @@ def log_ot(body: LogOTBody):
     return {"success": True, "message": f"บันทึก OT {body.hours} ชม. สำเร็จ"}
 
 # ============================================================
+#  GET /api/ot — ดึงรายการ OT (filter: employeeId, month=YYYY-MM)
+# ============================================================
+@app.get("/api/ot")
+def get_ot(employeeId: Optional[str] = None, month: Optional[str] = None):
+    conn = get_db()
+    cursor = conn.cursor()
+    query = "SELECT EmployeeId, Name, DateWork, Hours, Note, OTRate FROM OTLogs WHERE 1=1"
+    params = []
+    if employeeId:
+        query += " AND EmployeeId=?"
+        params.append(employeeId)
+    if month:
+        query += " AND CONVERT(varchar(7), DateWork, 120)=?"
+        params.append(month)
+    query += " ORDER BY DateWork DESC"
+    cursor.execute(query, *params)
+    logs = [{"employeeId": r[0], "name": r[1], "dateWork": str(r[2])[:10],
+             "hours": float(r[3]), "note": r[4] or "", "otRate": float(r[5])}
+            for r in cursor.fetchall()]
+    conn.close()
+    return {"otLogs": logs}
+
+@app.delete("/api/ot/{employee_id}/{date}")
+def delete_ot(employee_id: str, date: str):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM OTLogs WHERE EmployeeId=? AND DateWork=?", employee_id, date)
+    conn.commit()
+    conn.close()
+    return {"success": True}
+
+# ============================================================
 #  GET /api/dashboard?date=2026-04-09
 # ============================================================
 @app.get("/api/dashboard")

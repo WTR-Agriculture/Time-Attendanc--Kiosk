@@ -82,6 +82,12 @@ export async function logOT({ employeeId, employeeName, date, hours, note, otRat
   return apiPost('/api/ot', { employeeId, employeeName, date, hours, note: note || '', otRate: otRate ?? 1.0 });
 }
 
+export async function deleteOT(employeeId, date) {
+  const res = await fetch(`${API_URL}/api/ot/${encodeURIComponent(employeeId)}/${date}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`API DELETE error: ${res.status}`);
+  return res.json();
+}
+
 // ============================================================
 //  getOT — ดึงรายการ OT
 //  params: { week: 'YYYY-WW' } หรือไม่ส่งก็ได้ (ดึงทั้งหมด)
