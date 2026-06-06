@@ -1427,6 +1427,22 @@ def delete_special_hour_log(log_id: int):
     conn.close()
     return {"success": True}
 
+@app.put("/api/special_hours/{log_id}")
+def update_special_hour_log(log_id: int, body: CreateSpecialHourLogBody):
+    amount = round(body.hours * body.hourlyRate, 2)
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE SpecialHourLogs SET WorkDate=?, Hours=?, HourlyRate=?, Amount=?, Note=?
+        WHERE Id=?
+    """, body.workDate, body.hours, body.hourlyRate, amount, body.note or '', log_id)
+    if cursor.rowcount == 0:
+        conn.close()
+        raise HTTPException(status_code=404, detail="ไม่พบรายการ")
+    conn.commit()
+    conn.close()
+    return {"success": True, "amount": amount}
+
 # ============================================================
 #  GET /api/attendance/day — ดึงข้อมูลเวลาเข้าออกทุกคนของวัน
 # ============================================================

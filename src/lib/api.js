@@ -326,8 +326,20 @@ export async function updateWorkDays(periodId, employeeId, workDays) {
   return res.json();
 }
 
+export async function getSpecialHourLogs(employeeId) {
+  return apiGet('/api/special_hours', employeeId ? { employeeId } : {});
+}
+
 export async function createSpecialHourLog(body) {
   return apiPost('/api/special_hours', body);
+}
+
+export async function updateSpecialHourLog(id, body) {
+  const res = await fetch(`${API_URL}/api/special_hours/${id}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`API PUT error: ${res.status}`);
+  return res.json();
 }
 
 export async function deleteSpecialHourLog(id) {

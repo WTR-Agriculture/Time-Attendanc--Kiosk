@@ -324,12 +324,16 @@ export default function App() {
   const [otConfirmDelete, setOtConfirmDelete] = useState(null);
 
   // --- Special Hours modal ---
-  const [showSH,   setShowSH]   = useState(false);
-  const [shEmp,    setShEmp]    = useState(null);
-  const [shDate,   setShDate]   = useState('');
-  const [shHours,  setShHours]  = useState('');
-  const [shNote,   setShNote]   = useState('');
-  const [shSaving, setShSaving] = useState(false);
+  const [showSH,          setShowSH]          = useState(false);
+  const [shEmp,           setShEmp]           = useState(null);
+  const [shDate,          setShDate]          = useState('');
+  const [shHours,         setShHours]         = useState('');
+  const [shNote,          setShNote]          = useState('');
+  const [shSaving,        setShSaving]        = useState(false);
+  const [shLogs,          setShLogs]          = useState([]);
+  const [shLoading,       setShLoading]       = useState(false);
+  const [shConfirmDelete, setShConfirmDelete] = useState(null);
+  const [shEditId,        setShEditId]        = useState(null);
 
   // --- Payroll tab ---
   const [payPeriodStart,   setPayPeriodStart]   = useState('');
@@ -910,21 +914,52 @@ export default function App() {
     setTimeout(() => setAttSavedAll(false), 2000);
   };
 
+  const loadSHLogs = async (empId) => {
+    if (!empId) { setShLogs([]); return; }
+    setShLoading(true);
+    try { const d = await api.getSpecialHourLogs(empId); setShLogs(d.logs || []); } catch {}
+    setShLoading(false);
+  };
+
   const handleSaveSpecialHour = async () => {
     if (!shEmp || !shHours || !shDate) return;
     setShSaving(true);
     try {
-      await api.createSpecialHourLog({
+      const payload = {
         employeeId:   shEmp.employeeId,
         employeeName: shEmp.name,
         workDate:     shDate,
         hours:        parseFloat(shHours),
         hourlyRate:   shEmp.rate / 8,
         note:         shNote,
-      });
-      setShowSH(false);
+      };
+      if (shEditId) {
+        await api.updateSpecialHourLog(shEditId, payload);
+      } else {
+        await api.createSpecialHourLog(payload);
+      }
+      setShEditId(null);
+      setShDate('');
+      setShHours('');
+      setShNote('');
+      await loadSHLogs(shEmp.employeeId);
     } catch {}
     setShSaving(false);
+  };
+
+  const handleDeleteSH = async (log) => {
+    try {
+      await api.deleteSpecialHourLog(log.id);
+      setShConfirmDelete(null);
+      await loadSHLogs(shEmp.employeeId);
+    } catch {}
+  };
+
+  const handleEditSH = (log) => {
+    setShDate(log.workDate.slice(0, 10));
+    setShHours(String(log.hours));
+    setShNote(log.note || '');
+    setShEditId(log.id);
   };
 
   // ============================================================
@@ -1532,7 +1567,7 @@ export default function App() {
       {renderAdminLayout()}
       {showSH && createPortal(
         <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/40 px-0 sm:px-4"
-          onClick={() => setShowSH(false)}>
+          onClick={() => { setShowSH(false); setShEditId(null); }}>
           <div className="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl shadow-xl p-6 flex flex-col gap-4 max-h-[90vh] overflow-y-auto"
             onClick={e => e.stopPropagation()}>
             <h2 className="text-xl font-bold text-[#222222]">บันทึกชั่วโมงพิเศษ</h2>
@@ -1540,7 +1575,15 @@ export default function App() {
               <div className="flex flex-col gap-1.5">
                 <label className="text-sm font-semibold text-slate-500">พนักงาน *</label>
                 <select value={shEmp?.employeeId || ''}
-                  onChange={e => setShEmp(activeEmployees.find(emp => emp.employeeId === e.target.value) || null)}
+                  onChange={e => {
+                    const emp = activeEmployees.find(emp => emp.employeeId === e.target.value) || null;
+                    setShEmp(emp);
+                    setShEditId(null);
+                    setShDate('');
+                    setShHours('');
+                    setShNote('');
+                    loadSHLogs(emp?.employeeId);
+                  }}
                   className="bg-[#F8FAFC] border border-slate-200 rounded-2xl px-4 py-3 text-base outline-none focus:border-[#7B8CFA] w-full">
                   <option value="">-- เลือกพนักงาน --</option>
                   {activeEmployees.map(emp => (
@@ -1573,13 +1616,53 @@ export default function App() {
               )}
             </div>
             <div className="flex gap-3 pt-1">
-              <button onClick={() => setShowSH(false)}
+              <button onClick={() => { setShowSH(false); setShEditId(null); }}
                 className="flex-1 bg-slate-100 text-slate-600 font-bold py-3 rounded-2xl cursor-pointer">ยกเลิก</button>
               <button onClick={handleSaveSpecialHour} disabled={!shEmp || !shHours || !shDate || shSaving}
                 className="flex-1 bg-violet-500 disabled:opacity-40 text-white font-bold py-3 rounded-2xl cursor-pointer">
-                {shSaving ? 'กำลังบันทึก...' : 'บันทึก'}
+                {shSaving ? 'กำลังบันทึก...' : shEditId ? 'อัปเดต' : 'บันทึก'}
               </button>
             </div>
+
+            {/* รายการ ชม.พิเศษ */}
+            {shEmp && (
+              <div className="border-t border-slate-100 pt-4 flex flex-col gap-2">
+                <p className="text-sm font-semibold text-slate-500">ประวัติ ชม.พิเศษ</p>
+                {shLoading ? (
+                  <p className="text-sm text-slate-400 text-center py-2">กำลังโหลด...</p>
+                ) : shLogs.length === 0 ? (
+                  <p className="text-sm text-slate-400 text-center py-2">ไม่มีรายการ</p>
+                ) : shLogs.map(log => (
+                  <div key={log.id}>
+                    {shConfirmDelete?.id === log.id ? (
+                      <div className="bg-red-50 border border-red-200 rounded-2xl px-4 py-3 flex items-center justify-between gap-2">
+                        <span className="text-sm text-red-700 font-medium">ลบรายการนี้?</span>
+                        <div className="flex gap-2">
+                          <button onClick={() => setShConfirmDelete(null)}
+                            className="text-sm px-3 py-1.5 bg-slate-100 rounded-xl cursor-pointer">ยกเลิก</button>
+                          <button onClick={() => handleDeleteSH(log)}
+                            className="text-sm px-3 py-1.5 bg-red-500 text-white rounded-xl cursor-pointer">ลบ</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className={`flex items-center justify-between gap-2 bg-slate-50 border rounded-2xl px-4 py-3 ${shEditId === log.id ? 'border-violet-400' : 'border-slate-100'}`}>
+                        <div className="flex flex-col gap-0.5 min-w-0">
+                          <span className="text-sm font-medium">{log.workDate.slice(0, 10)} — {log.hours} ชม.</span>
+                          <span className="text-xs text-violet-600 font-semibold">฿{log.amount.toLocaleString()}</span>
+                          {log.note && <span className="text-xs text-slate-400 truncate">{log.note}</span>}
+                        </div>
+                        <div className="flex gap-1.5 flex-shrink-0">
+                          <button onClick={() => handleEditSH(log)}
+                            className="text-xs px-3 py-1.5 bg-violet-100 text-violet-700 font-semibold rounded-xl cursor-pointer">แก้ไข</button>
+                          <button onClick={() => setShConfirmDelete(log)}
+                            className="text-xs px-3 py-1.5 bg-red-100 text-red-600 font-semibold rounded-xl cursor-pointer">ลบ</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>,
         document.body
