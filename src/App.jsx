@@ -885,7 +885,8 @@ export default function App() {
 
   const handleSaveAttCard = async (emp) => {
     const s = attCardState[emp.employeeId] || {};
-    if (!s.inTime && !s.note?.trim()) return;
+    const hasExisting = !!(emp.inTime || emp.outTime || emp.note);
+    if (!s.inTime && !s.note?.trim() && !hasExisting) return;
     setAttSavingId(emp.employeeId);
     try {
       await api.saveAttendanceDay({
