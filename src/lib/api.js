@@ -298,6 +298,12 @@ export async function getAdvances() {
   return apiGet('/api/advances');
 }
 
+export async function deleteAdvance(id) {
+  const res = await fetch(`${API_URL}/api/advances/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`API DELETE error: ${res.status}`);
+  return res.json();
+}
+
 export async function getAdvanceHistory(empId) {
   return apiGet(`/api/advances/${encodeURIComponent(empId)}/history`);
 }

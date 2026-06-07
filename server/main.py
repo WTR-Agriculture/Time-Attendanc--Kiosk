@@ -1048,12 +1048,16 @@ def pay_payroll_period_item(period_id: int, employee_id: str, body: PayItemBody)
         """, body.paymentMethod, merged_period_id, employee_id)
         recalc_period_status(cursor, merged_period_id)
 
-    # บันทึกหักเบิก (ถ้ามี)
+    # บันทึกหักเบิก (ถ้ามี) — ป้องกันซ้ำถ้า deductAdvance ถูกเรียกก่อนหน้านี้แล้ว
     if advance_deduction > 0:
         cursor.execute("""
-            INSERT INTO WageAdvances (EmployeeId, EmployeeName, TranDate, Type, Amount, Note, PeriodId)
-            VALUES (?, ?, CAST(GETDATE() AS DATE), ?, ?, ?, ?)
-        """, employee_id, emp_name, 'หัก', advance_deduction, 'หักจากงวดค่าแรง', period_id)
+            SELECT 1 FROM WageAdvances WHERE PeriodId=? AND EmployeeId=? AND Type=?
+        """, period_id, employee_id, 'หัก')
+        if not cursor.fetchone():
+            cursor.execute("""
+                INSERT INTO WageAdvances (EmployeeId, EmployeeName, TranDate, Type, Amount, Note, PeriodId)
+                VALUES (?, ?, CAST(GETDATE() AS DATE), ?, ?, ?, ?)
+            """, employee_id, emp_name, 'หัก', advance_deduction, 'หักจากงวดค่าแรง', period_id)
 
     recalc_period_status(cursor, period_id)
     conn.commit()
@@ -1886,6 +1890,19 @@ def deduct_advance(body: DeductAdvanceBody):
             WHERE PeriodId = ? AND EmployeeId = ?
         """, body.amount, body.amount, body.periodId, body.employeeId)
         recalc_period_status(cursor, body.periodId)
+    conn.commit()
+    conn.close()
+    return {"success": True}
+
+@app.delete("/api/advances/{advance_id}")
+def delete_advance(advance_id: int):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT Id FROM WageAdvances WHERE Id=?", advance_id)
+    if not cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="ไม่พบรายการ")
+    cursor.execute("DELETE FROM WageAdvances WHERE Id=?", advance_id)
     conn.commit()
     conn.close()
     return {"success": True}

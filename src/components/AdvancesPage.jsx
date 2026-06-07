@@ -45,9 +45,10 @@ export default function AdvancesPage() {
   const [deductSaving, setDeductSaving] = useState(false);
 
   // History modal
-  const [histEmp, setHistEmp]       = useState(null);
-  const [history, setHistory]       = useState([]);
-  const [histLoading, setHistLoading] = useState(false);
+  const [histEmp,           setHistEmp]           = useState(null);
+  const [history,           setHistory]           = useState([]);
+  const [histLoading,       setHistLoading]       = useState(false);
+  const [histConfirmDelete, setHistConfirmDelete] = useState(null);
 
   const [search, setSearch] = useState('');
 
@@ -108,9 +109,25 @@ export default function AdvancesPage() {
 
   const openHistory = async (emp) => {
     setHistEmp(emp);
+    setHistConfirmDelete(null);
     setHistLoading(true);
     try { const d = await api.getAdvanceHistory(emp.employeeId); setHistory(d.history); } catch {}
     setHistLoading(false);
+  };
+
+  const reloadHistory = async (emp) => {
+    setHistLoading(true);
+    try { const d = await api.getAdvanceHistory(emp.employeeId); setHistory(d.history); } catch {}
+    setHistLoading(false);
+  };
+
+  const handleDeleteAdvance = async (h) => {
+    try {
+      await api.deleteAdvance(h.id);
+      setHistConfirmDelete(null);
+      await reloadHistory(histEmp);
+      await loadData();
+    } catch {}
   };
 
   const empWithBalance = employees.filter(e => e.balance > 0);
@@ -292,19 +309,41 @@ export default function AdvancesPage() {
             ) : (
               <div className="overflow-y-auto flex flex-col gap-2">
                 {history.map(h => (
-                  <div key={h.id} className="border border-slate-100 rounded-2xl px-4 py-3 flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-medium text-slate-700">{fmtD(h.tranDate)}</p>
-                      <p className="text-xs text-slate-400 mt-0.5">{h.note || (h.type === 'หัก' ? 'หักจากค่าแรง' : 'เบิกล่วงหน้า')}</p>
-                    </div>
-                    <div className="text-right flex-shrink-0">
-                      <p className={`font-bold text-sm ${h.type === 'เบิก' ? 'text-amber-600' : 'text-emerald-600'}`}>
-                        {h.type === 'เบิก' ? '+' : '-'}{formatMoney(h.amount)}
-                      </p>
-                      <p className={`text-xs font-semibold mt-0.5 ${h.type === 'เบิก' ? 'text-amber-500' : 'text-emerald-500'}`}>
-                        {h.type}
-                      </p>
-                    </div>
+                  <div key={h.id}>
+                    {histConfirmDelete?.id === h.id ? (
+                      <div className="bg-red-50 border border-red-200 rounded-2xl px-4 py-3 flex items-center justify-between gap-2">
+                        <span className="text-sm text-red-700 font-medium">ลบรายการนี้?</span>
+                        <div className="flex gap-2">
+                          <button onClick={() => setHistConfirmDelete(null)}
+                            className="text-sm px-3 py-1.5 bg-slate-100 rounded-xl cursor-pointer">ยกเลิก</button>
+                          <button onClick={() => handleDeleteAdvance(h)}
+                            className="text-sm px-3 py-1.5 bg-red-500 text-white rounded-xl cursor-pointer">ลบ</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="border border-slate-100 rounded-2xl px-4 py-3 flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-slate-700">{fmtD(h.tranDate)}</p>
+                          <p className="text-xs text-slate-400 mt-0.5">{h.note || (h.type === 'หัก' ? 'หักจากค่าแรง' : 'เบิกล่วงหน้า')}</p>
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <div className="text-right">
+                            <p className={`font-bold text-sm ${h.type === 'เบิก' ? 'text-amber-600' : 'text-emerald-600'}`}>
+                              {h.type === 'เบิก' ? '+' : '-'}{formatMoney(h.amount)}
+                            </p>
+                            <p className={`text-xs font-semibold mt-0.5 ${h.type === 'เบิก' ? 'text-amber-500' : 'text-emerald-500'}`}>
+                              {h.type}
+                            </p>
+                          </div>
+                          {!h.periodId && (
+                            <button onClick={() => setHistConfirmDelete(h)}
+                              className="text-xs px-2.5 py-1.5 bg-red-50 text-red-500 font-semibold rounded-xl cursor-pointer hover:bg-red-100 transition-colors">
+                              ลบ
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
