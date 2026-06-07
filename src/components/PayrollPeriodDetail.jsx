@@ -568,6 +568,22 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
           <div>
             <p className="text-xs text-slate-400">รวมสุทธิทั้งหมด</p>
             <p className="text-2xl font-bold text-[#7B8CFA]">{fmtB(detail.grandTotal)}</p>
+            {(() => {
+              const paidTotal   = (detail.items || []).reduce((s, i) => i.paidStatus === 'Paid' ? s + (i.netTotal || 0) : s, 0);
+              const unpaidTotal = (detail.grandTotal || 0) - paidTotal;
+              return (
+                <div className="flex gap-4 mt-1.5">
+                  <div>
+                    <p className="text-xs text-slate-400">จ่ายแล้ว</p>
+                    <p className="text-base font-bold text-emerald-600">{fmtB(paidTotal)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-400">ยังค้างชำระ</p>
+                    <p className="text-base font-bold text-amber-500">{fmtB(unpaidTotal)}</p>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
           <div className="flex gap-2 flex-wrap">
             <button onClick={handleRecalculate} disabled={recalculating}
