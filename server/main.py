@@ -933,6 +933,24 @@ def get_payroll_period_detail(period_id: int):
         except Exception:
             pass
 
+    # CustomLineItems
+    custom_by_emp = {}
+    try:
+        if emp_ids:
+            cursor.execute(f"""
+                SELECT EmployeeId, Id, Label, Amount
+                FROM CustomLineItems
+                WHERE PeriodId=? AND EmployeeId IN ({','.join(['?']*len(emp_ids))})
+                ORDER BY CreatedAt
+            """, period_id, *emp_ids)
+            for r in cursor.fetchall():
+                eid = r[0]
+                if eid not in custom_by_emp:
+                    custom_by_emp[eid] = []
+                custom_by_emp[eid].append({"id": r[1], "label": r[2], "amount": float(r[3])})
+    except Exception:
+        pass
+
     conn.close()
 
     piece_by_emp = {}
@@ -953,6 +971,7 @@ def get_payroll_period_detail(period_id: int):
         item["specialHoursHours"]  = sh_by_emp.get(item["employeeId"], {}).get("hours", 0.0)
         item["specialHoursLogs"]   = sh_detail_by_emp.get(item["employeeId"], [])
         item["pendingDeferred"]    = pending_map.get(item["employeeId"])
+        item["customLines"]        = custom_by_emp.get(item["employeeId"], [])
 
     return {"id": p[0], "startDate": str(p[1]), "endDate": str(p[2]),
             "grandTotal": float(p[3]), "status": p[4], "paidAt": str(p[5]) if p[5] else None, "items": items}
@@ -1288,6 +1307,20 @@ def recalculate_period(period_id: int):
     except Exception:
         pass
 
+    # Custom line items
+    custom_map = {}
+    try:
+        ids_list = list(unpaid_ids.keys())
+        cursor.execute(f"""
+            SELECT EmployeeId, SUM(Amount)
+            FROM CustomLineItems
+            WHERE PeriodId=? AND EmployeeId IN ({','.join(['?']*len(ids_list))})
+            GROUP BY EmployeeId
+        """, period_id, *ids_list)
+        custom_map = {r[0]: float(r[1]) for r in cursor.fetchall()}
+    except Exception:
+        pass
+
     updated = 0
     for emp_id, kept in unpaid_ids.items():
         emp = emp_rates.get(emp_id)
@@ -1319,7 +1352,8 @@ def recalculate_period(period_id: int):
         advance_deduct       = kept["advanceDeduction"]
         special_hours        = sh_map.get(emp_id, 0.0)
         merged_deferred      = kept["mergedDeferredAmount"]
-        new_net = round(base - late_deduction + ot_amount + piece_total - advance_deduct + special_hours + merged_deferred, 2)
+        custom_line_total    = custom_map.get(emp_id, 0.0)
+        new_net = round(base - late_deduction + ot_amount + piece_total - advance_deduct + special_hours + merged_deferred + custom_line_total, 2)
         cursor.execute("""
             UPDATE PayrollPeriodItems
             SET WorkDays=?, BaseAmount=?, LateDeduction=?, OTHours=?, OTAmount=?, NetTotal=?
@@ -1890,6 +1924,56 @@ def deduct_advance(body: DeductAdvanceBody):
             WHERE PeriodId = ? AND EmployeeId = ?
         """, body.amount, body.amount, body.periodId, body.employeeId)
         recalc_period_status(cursor, body.periodId)
+    conn.commit()
+    conn.close()
+    return {"success": True}
+
+class CustomLineItemBody(BaseModel):
+    employeeId: str
+    label:      str
+    amount:     float
+
+@app.post("/api/payroll/periods/{period_id}/custom")
+def add_custom_line_item(period_id: int, body: CustomLineItemBody):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO CustomLineItems (PeriodId, EmployeeId, Label, Amount)
+        VALUES (?, ?, ?, ?)
+    """, period_id, body.employeeId, body.label, body.amount)
+    cursor.execute("""
+        UPDATE PayrollPeriodItems SET NetTotal = NetTotal + ?
+        WHERE PeriodId=? AND EmployeeId=?
+    """, body.amount, period_id, body.employeeId)
+    cursor.execute("""
+        UPDATE PayrollPeriods SET GrandTotal=(
+            SELECT SUM(NetTotal) FROM PayrollPeriodItems WHERE PeriodId=?
+        ) WHERE Id=?
+    """, period_id, period_id)
+    conn.commit()
+    conn.close()
+    return {"success": True}
+
+@app.delete("/api/payroll/periods/{period_id}/custom/{item_id}")
+def delete_custom_line_item(period_id: int, item_id: int):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT EmployeeId, Amount FROM CustomLineItems WHERE Id=? AND PeriodId=?", item_id, period_id)
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="ไม่พบรายการ")
+    emp_id, amount = row[0], float(row[1])
+    cursor.execute("DELETE FROM CustomLineItems WHERE Id=?", item_id)
+    cursor.execute("""
+        UPDATE PayrollPeriodItems SET NetTotal = NetTotal - ?
+        WHERE PeriodId=? AND EmployeeId=?
+    """, amount, period_id, emp_id)
+    cursor.execute("""
+        UPDATE PayrollPeriods SET GrandTotal=(
+            SELECT SUM(NetTotal) FROM PayrollPeriodItems WHERE PeriodId=?
+        ) WHERE Id=?
+    """, period_id, period_id)
     conn.commit()
     conn.close()
     return {"success": True}

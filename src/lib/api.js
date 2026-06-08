@@ -291,6 +291,16 @@ export async function addPeriodPieceRate(periodId, body) {
   return apiPost(`/api/payroll/periods/${periodId}/piece_rate`, body);
 }
 
+export async function addCustomLineItem(periodId, body) {
+  return apiPost(`/api/payroll/periods/${periodId}/custom`, body);
+}
+
+export async function deleteCustomLineItem(periodId, itemId) {
+  const res = await fetch(`${API_URL}/api/payroll/periods/${periodId}/custom/${itemId}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`API DELETE error: ${res.status}`);
+  return res.json();
+}
+
 // ============================================================
 //  Wage Advances
 // ============================================================

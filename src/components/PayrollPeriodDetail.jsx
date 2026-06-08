@@ -78,6 +78,18 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
   const [editDaysVal,   setEditDaysVal]   = useState('');
   const [editDaysSaving,setEditDaysSaving]= useState(false);
 
+  // หัก ชม. inline
+  const [deductHoursFor,    setDeductHoursFor]    = useState(null);
+  const [deductHoursVal,    setDeductHoursVal]    = useState('');
+  const [deductHoursSaving, setDeductHoursSaving] = useState(false);
+
+  // + รายการ inline
+  const [addLineFor,    setAddLineFor]    = useState(null);
+  const [addLineLabel,  setAddLineLabel]  = useState('');
+  const [addLineAmt,    setAddLineAmt]    = useState('');
+  const [addLineSaving, setAddLineSaving] = useState(false);
+  const [confirmDeleteLine, setConfirmDeleteLine] = useState(null);
+
   // piece rate modal state
   const [addingFor, setAddingFor] = useState(null);
   const [fJobId,  setFJobId]  = useState('');
@@ -136,6 +148,45 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
     setDeductFor(item);
     setDeductAmt('');
     setDeductNote('');
+  };
+
+  const handleDeductHours = async (item) => {
+    const hours = parseFloat(deductHoursVal);
+    if (!hours || hours <= 0) return;
+    setDeductHoursSaving(true);
+    try {
+      const newDays = Math.max(0, parseFloat(item.workDays) - hours / 8);
+      await api.updateWorkDays(period.id, item.employeeId, Math.round(newDays * 1000) / 1000);
+      setDeductHoursFor(null);
+      setDeductHoursVal('');
+      loadDetail();
+    } catch {}
+    setDeductHoursSaving(false);
+  };
+
+  const handleAddLine = async (item) => {
+    if (!addLineLabel.trim() || !addLineAmt) return;
+    setAddLineSaving(true);
+    try {
+      await api.addCustomLineItem(period.id, {
+        employeeId: item.employeeId,
+        label: addLineLabel.trim(),
+        amount: parseFloat(addLineAmt),
+      });
+      setAddLineFor(null);
+      setAddLineLabel('');
+      setAddLineAmt('');
+      loadDetail();
+    } catch {}
+    setAddLineSaving(false);
+  };
+
+  const handleDeleteLine = async (line) => {
+    try {
+      await api.deleteCustomLineItem(period.id, line.id);
+      setConfirmDeleteLine(null);
+      loadDetail();
+    } catch {}
   };
 
   const handleDeductAdvance = async () => {
@@ -780,6 +831,11 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
                     </button>
                   </div>
                 )}
+                {item.customLines?.map(line => (
+                  <span key={line.id} className={`rounded-xl px-3 py-1.5 ${line.amount >= 0 ? 'bg-teal-50 text-teal-700' : 'bg-rose-50 text-rose-600'}`}>
+                    {line.label} {line.amount >= 0 ? '+' : ''}{fmtB(line.amount)}
+                  </span>
+                ))}
               </div>
 
               {/* Piece rate section */}
@@ -829,6 +885,101 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
                   </button>
                 )}
               </div>
+
+              {/* ── หัก ชม. / + รายการ ── */}
+              {!itemPaid && !isDeferred && (
+                <div className="border-t border-slate-100 pt-3 flex flex-col gap-2">
+                  <div className="flex gap-2 flex-wrap">
+                    {/* ปุ่ม หัก ชม. */}
+                    {deductHoursFor === item.employeeId ? (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <input type="number" min="0.5" step="0.5" value={deductHoursVal}
+                          onChange={e => setDeductHoursVal(e.target.value)}
+                          placeholder="ชม. ที่หัก"
+                          className="bg-[#F8FAFC] border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-rose-400 w-28" />
+                        {deductHoursVal && (
+                          <span className="text-xs text-slate-400">
+                            {parseFloat(item.workDays)} - {parseFloat(deductHoursVal)}/8 = {(parseFloat(item.workDays) - parseFloat(deductHoursVal)/8).toFixed(3)} วัน
+                          </span>
+                        )}
+                        <button onClick={() => handleDeductHours(item)} disabled={deductHoursSaving || !deductHoursVal}
+                          className="bg-rose-500 disabled:opacity-40 text-white text-xs font-bold px-3 py-2 rounded-xl cursor-pointer">
+                          {deductHoursSaving ? '...' : 'หัก'}
+                        </button>
+                        <button onClick={() => { setDeductHoursFor(null); setDeductHoursVal(''); }}
+                          className="text-xs text-slate-400 px-2 py-2 rounded-xl hover:bg-slate-100 cursor-pointer">ยกเลิก</button>
+                      </div>
+                    ) : (
+                      <button onClick={() => { setDeductHoursFor(item.employeeId); setAddLineFor(null); setDeductHoursVal(''); }}
+                        className="bg-rose-50 text-rose-600 text-xs font-bold px-3 py-2 rounded-xl cursor-pointer hover:bg-rose-100 transition-colors active:scale-95">
+                        หัก ชม.
+                      </button>
+                    )}
+
+                    {/* ปุ่ม + รายการ */}
+                    {addLineFor !== item.employeeId && (
+                      <button onClick={() => { setAddLineFor(item.employeeId); setDeductHoursFor(null); setAddLineLabel(''); setAddLineAmt(''); }}
+                        className="bg-teal-50 text-teal-700 text-xs font-bold px-3 py-2 rounded-xl cursor-pointer hover:bg-teal-100 transition-colors active:scale-95">
+                        + รายการ
+                      </button>
+                    )}
+                  </div>
+
+                  {/* inline form + รายการ */}
+                  {addLineFor === item.employeeId && (
+                    <div className="flex flex-col gap-2 bg-slate-50 rounded-2xl p-3">
+                      <input type="text" value={addLineLabel} onChange={e => setAddLineLabel(e.target.value)}
+                        placeholder="ชื่อรายการ เช่น ค่าเดินทาง"
+                        className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-[#7B8CFA]" />
+                      <input type="number" step="0.01" value={addLineAmt} onChange={e => setAddLineAmt(e.target.value)}
+                        placeholder="จำนวนเงิน (ใส่ - ถ้าหัก เช่น -100)"
+                        className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-[#7B8CFA]" />
+                      <div className="flex gap-2">
+                        <button onClick={() => handleAddLine(item)} disabled={addLineSaving || !addLineLabel.trim() || !addLineAmt}
+                          className="flex-1 bg-teal-500 disabled:opacity-40 text-white text-sm font-bold py-2 rounded-xl cursor-pointer">
+                          {addLineSaving ? 'กำลังบันทึก...' : 'บันทึก'}
+                        </button>
+                        <button onClick={() => { setAddLineFor(null); setAddLineLabel(''); setAddLineAmt(''); }}
+                          className="px-4 bg-slate-100 text-slate-500 text-sm font-bold py-2 rounded-xl cursor-pointer">
+                          ยกเลิก
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* รายการที่เพิ่มไว้ */}
+                  {item.customLines?.length > 0 && (
+                    <div className="flex flex-col gap-1.5">
+                      {item.customLines.map(line => (
+                        <div key={line.id}>
+                          {confirmDeleteLine?.id === line.id ? (
+                            <div className="bg-red-50 border border-red-200 rounded-2xl px-3 py-2.5 flex items-center justify-between gap-2">
+                              <span className="text-sm text-red-700 font-medium">ลบรายการนี้?</span>
+                              <div className="flex gap-2">
+                                <button onClick={() => setConfirmDeleteLine(null)}
+                                  className="text-xs px-3 py-1.5 bg-slate-100 rounded-xl cursor-pointer">ยกเลิก</button>
+                                <button onClick={() => handleDeleteLine(line)}
+                                  className="text-xs px-3 py-1.5 bg-red-500 text-white rounded-xl cursor-pointer">ลบ</button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="bg-slate-50 rounded-2xl px-3 py-2.5 flex items-center justify-between gap-3">
+                              <span className="text-sm text-slate-700">{line.label}</span>
+                              <div className="flex items-center gap-2 flex-shrink-0">
+                                <span className={`text-sm font-bold ${line.amount >= 0 ? 'text-teal-600' : 'text-rose-500'}`}>
+                                  {line.amount >= 0 ? '+' : ''}{fmtB(line.amount)}
+                                </span>
+                                <button onClick={() => setConfirmDeleteLine(line)}
+                                  className="text-slate-300 hover:text-red-400 transition-colors cursor-pointer"><IconTrash /></button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}
