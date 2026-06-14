@@ -402,6 +402,15 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
         ]);
       });
     }
+    if (detail.items.some(i => i.customLines?.length > 0)) {
+      rows.push([], ['── รายการเพิ่มเติม ──']);
+      rows.push(['พนักงาน', 'รายการ', 'จำนวนเงิน (฿)']);
+      detail.items.forEach(item => {
+        item.customLines?.forEach(line => {
+          rows.push([item.name, line.label, line.amount]);
+        });
+      });
+    }
     const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
     const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -466,6 +475,20 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
       ws3['!cols'] = [{ wch: 20 }, { wch: 24 }, { wch: 14 }];
       XLSX.utils.book_append_sheet(wb, ws3, 'รวมจ่ายงวดก่อน');
     }
+    const allCustom = [];
+    detail.items.forEach(item => {
+      item.customLines?.forEach(line => {
+        allCustom.push([item.name, line.label, line.amount]);
+      });
+    });
+    if (allCustom.length > 0) {
+      const ws4 = XLSX.utils.aoa_to_sheet([
+        ['พนักงาน', 'รายการ', 'จำนวนเงิน (฿)'],
+        ...allCustom,
+      ]);
+      ws4['!cols'] = [{ wch: 20 }, { wch: 30 }, { wch: 14 }];
+      XLSX.utils.book_append_sheet(wb, ws4, 'รายการเพิ่มเติม');
+    }
 
     XLSX.writeFile(wb, `payroll_${detail.startDate}_${detail.endDate}.xlsx`);
   };
@@ -500,6 +523,12 @@ export default function PayrollPeriodDetail({ period, employees, onClose, onPaid
       ${item.mergedDeferredAmount > 0 ? `
         <tr><td colspan="9" style="padding:2px 10px 6px;color:#0369a1;font-size:11px">
           รวมจากงวด ${item.mergedDeferredStartDate ? fmtDate(item.mergedDeferredStartDate) + '–' + fmtDate(item.mergedDeferredEndDate) : ''} = ฿${fmt(item.mergedDeferredAmount)}
+        </td></tr>` : ''}
+      ${item.customLines?.length > 0 ? `
+        <tr><td colspan="9" style="padding:2px 10px 6px;color:#0f766e;font-size:11px">
+          รายการเพิ่มเติม: ${item.customLines.map(l =>
+            `${l.label} ${l.amount >= 0 ? '+' : ''}฿${fmt(l.amount)}`
+          ).join(' / ')}
         </td></tr>` : ''}
     `;
     }).join('');
