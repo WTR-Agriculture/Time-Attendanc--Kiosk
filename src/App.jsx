@@ -906,7 +906,11 @@ export default function App() {
   const [attSavedAll,  setAttSavedAll]  = useState(false);
 
   const handleSaveAllAtt = async () => {
-    const toSave = attDayData.filter(emp => attCardState[emp.employeeId]?.inTime || attCardState[emp.employeeId]?.note?.trim());
+    const toSave = attDayData.filter(emp => {
+      const s = attCardState[emp.employeeId] || {};
+      const hasExisting = !!(emp.inTime || emp.outTime || emp.note);
+      return !!(s.inTime || s.note?.trim()) || hasExisting;
+    });
     if (toSave.length === 0) return;
     setAttSavingAll(true);
     await Promise.all(toSave.map(emp => handleSaveAttCard(emp)));
